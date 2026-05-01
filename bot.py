@@ -8,7 +8,8 @@ PROMPTPAY_ID = "0886560336"
 DATA_FILE = "topup_data.json" 
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
 ADMIN_CHANNEL_ID = 0 
-BANNER_URL = "https://i.imgur.com/VpV2g9G.png" # รูปแบนเนอร์ เปลี่ยนลิงก์ได้
+BANNER_URL = "https://i.imgur.com/j4sE5qP.jpeg"
+
 
 if os.path.exists(DATA_FILE): 
     with open(DATA_FILE, 'r', encoding='utf-8') as f: 
