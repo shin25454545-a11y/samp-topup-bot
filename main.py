@@ -15,7 +15,7 @@ PROMPTPAY_NUMBER = os.getenv("PROMPTPAY_NUMBER")
 ROLE_GOLD_ID = int(os.getenv("ROLE_GOLD_ID"))
 ROLE_SILVER_ID = int(os.getenv("ROLE_SILVER_ID"))
 ROLE_BRONZE_ID = int(os.getenv("ROLE_BRONZE_ID"))
-ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", 0)) # ใส่ ID ยศแอดมิน เพิ่มใน Railway
+ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", 0))
 # ======================================
 
 DB_PATH = "data.db"
@@ -75,14 +75,14 @@ class MainMenuView(discord.ui.View):
 
     @discord.ui.button(label="💰 เติมเงิน", style=discord.ButtonStyle.green)
     async def topup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("💰 **ระบบเติมเงิน**\n1. โอนมาที่พร้อมเพย์: `0886560336`\n2. แจ้งสลิปที่แชทนี้พร้อม @แอดมิน\n3. รอแอดมินเติมเครดิตให้ 1-5 นาที", ephemeral=True)
+        await interaction.response.send_message(f"💰 **ระบบเติมเงิน**\n1. โอนมาที่พร้อมเพย์: `{PROMPTPAY_NUMBER}`\n2. แจ้งสลิปที่แชทนี้พร้อม @แอดมิน\n3. รอแอดมินเติมเครดิตให้ 1-5 นาที", ephemeral=True)
 
     @discord.ui.button(label="💵 เช็คเครดิต", style=discord.ButtonStyle.blurple)
     async def check_credit(self, interaction: discord.Interaction, button: discord.ui.Button):
         credit = await get_credit(interaction.user.id)
         await interaction.response.send_message(f"💵 **เครดิตของคุณ:** {credit}฿", ephemeral=True)
 
-    @discord.ui.button(label="🏪 ร้านค้า VIP", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="🏪 ร้านค้า VIP", style=discord.ButtonStyle.grey)
     async def shop(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="🏪 ร้านค้า VIP", description="เลือกยศที่ต้องการซื้อ ระบบจะหักเครดิตอัตโนมัติ", color=0xffd700)
         view = ShopView(interaction.user.id)
@@ -109,7 +109,7 @@ class ShopView(discord.ui.View):
         new_credit = await get_credit(interaction.user.id)
         await interaction.response.send_message(f"✅ ซื้อ {role_name} สำเร็จ! หัก {price}฿\n💵 เครดิตคงเหลือ: {new_credit}฿", ephemeral=True)
 
-    @discord.ui.button(label="VIP Gold 300฿", style=discord.ButtonStyle.yellow)
+    @discord.ui.button(label="VIP Gold 300฿", style=discord.ButtonStyle.success)
     async def gold(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.buy_role(interaction, ROLE_GOLD_ID, 300, "VIP Gold")
 
