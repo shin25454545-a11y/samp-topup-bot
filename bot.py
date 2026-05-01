@@ -13,11 +13,16 @@ BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&
 ADMIN_CHANNEL_ID = 0
 ANNOUNCE_CHANNEL_ID = 1499809858680000712
 
+# --- ระบบข้อมูล แก้ KeyError ---
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, 'r', encoding='utf-8') as f:
         data = json.load(f)
 else:
-    data = {"users": {}, "codes": {}}
+    data = {}
+
+# กันไฟล์เก่าโครงสร้างไม่ครบ
+if "users" not in data: data["users"] = {}
+if "codes" not in data: data["codes"] = {}
 
 def save_data():
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -193,7 +198,7 @@ async def on_ready():
     print(f'BOT ONLINE: {bot.user}')
     bot.add_view(MainMenu())
     bot.add_view(ShopMenu())
-    await bot.sync_commands() # สำคัญมาก! ซิงค์คำสั่ง Slash
+    await bot.sync_commands()
     print('Slash Commands Synced!')
 
 @bot.command(name="เมนู")
