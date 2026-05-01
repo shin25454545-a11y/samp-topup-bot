@@ -28,22 +28,19 @@ class TopupMenu(nextcord.ui.View):
     
     @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green, custom_id="topup_button_persistent") 
     async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
-        embed = nextcord.Embed(
-            title="สแกน QR เพื่อเติมเงิน",
-            description=f"PromptPay: `{PROMPTPAY_ID}`\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้",
-            color=0x00ff00
+        await interaction.response.send_message(
+            f"**สแกน QR เพื่อเติมเงิน**\nPromptPay: `{PROMPTPAY_ID}`\n\n**ลิงก์ QR:** {QR_IMAGE_URL}\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้",
+            ephemeral=True
         )
-        embed.set_image(url=QR_IMAGE_URL)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.event 
 async def on_ready(): 
     print(f'BOT ONLINE: {bot.user}') 
     bot.add_view(TopupMenu())
 
-@bot.command() 
+@bot.command(name="เมนู") 
 @commands.has_permissions(administrator=True) 
-async def setuptopup(ctx): 
+async def menu_command(ctx): 
     embed = nextcord.Embed( 
         title="ระบบเติมเงินอัตโนมัติ", 
         description="กดปุ่ม 'เติมเงิน' ด้านล่างเพื่อรับ QR Code", 
