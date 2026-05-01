@@ -64,7 +64,7 @@ class VipShopView(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @nextcord.ui.button(label="Gold 300฿", style=nextcord.ButtonStyle.gold, custom_id="vip_gold")
+    @nextcord.ui.button(label="Gold 300฿", style=nextcord.ButtonStyle.primary, custom_id="vip_gold")
     async def gold_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         role = interaction.guild.get_role(ROLE_GOLD_ID)
         if role:
@@ -125,7 +125,7 @@ class MainMenuView(nextcord.ui.View):
         embed = nextcord.Embed(
             title="👑 ร้านค้า VIP",
             description="เลือกยศที่ต้องการ กดแล้วรับยศทันที + ได้ QR สำหรับชำระเงิน\n**ยศอยู่ถาวร ไม่มีการลบ**",
-            color=0xffd700
+            color=0x5865F2
         )
         embed.add_field(name="Gold", value="300 บาท", inline=True)
         embed.add_field(name="Silver", value="200 บาท", inline=True)
