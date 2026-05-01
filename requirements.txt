@@ -1,3 +1,5 @@
 
 nextcord
 Flask
+qrcode
+promptpay-qr
