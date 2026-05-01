@@ -10,7 +10,7 @@ load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 OWNER_ID = int(os.getenv('DISCORD_OWNER_ID', 0))
-TRUEWALLET_BOT_ID = 123456789012345678  # เปลี่ยนเป็น ID บอทซอง TrueWallet ที่ท่านใช้
+TRUEWALLET_BOT_ID = 1499646135944609872  # ID บอทซอง TrueWallet ใส่ให้แล้ว
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -42,7 +42,7 @@ class BuyVipModal(ui.Modal, title='👑 ซื้อ VIP เข้าเกม')
 
 class TopupMenu(ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # ปุ่มอยู่ถาวร
+        super().__init__(timeout=None)
 
     @ui.button(label="💵 เติมเงินเข้าเกม", style=discord.ButtonStyle.success, custom_id="topup_ingame")
     async def topup_ingame(self, interaction: discord.Interaction, button: ui.Button):
@@ -54,7 +54,7 @@ class TopupMenu(ui.View):
 
 @bot.event
 async def on_ready():
-    bot.add_view(TopupMenu())  # ทำให้ปุ่มกดได้ตลอดแม้รีบอท
+    bot.add_view(TopupMenu())
     print(f'Logged in as {bot.user}')
     print('------')
 
@@ -71,8 +71,9 @@ async def เมนู(ctx):
 @bot.command()
 async def sync(ctx):
     if ctx.author.id == OWNER_ID:
+        await ctx.defer()
         await bot.tree.sync()
-        await ctx.send("Synced commands แล้ว", delete_after=5)
+        await ctx.send("✅ Synced commands แล้ว", delete_after=5)
     else:
         await ctx.send("ไม่มีสิทธิ์ใช้คำสั่งนี้", delete_after=5)
 
