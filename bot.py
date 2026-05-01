@@ -198,7 +198,7 @@ async def on_ready():
     print(f'BOT ONLINE: {bot.user}')
     bot.add_view(MainMenu())
     bot.add_view(ShopMenu())
-    await bot.sync_commands()
+    await bot.sync_application_commands() # แก้ตรงนี้
     print('Slash Commands Synced!')
 
 @bot.command(name="เมนู")
