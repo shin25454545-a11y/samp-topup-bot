@@ -1,72 +1,124 @@
-import nextcord
-from nextcord.ext import commands
+import discord
+from discord.ext import commands
 import qrcode
-import io
-from flask import Flask
-from threading import Thread
 import os
+from io import BytesIO
+import aiosqlite
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-PROMPTPAY_NUMBER = os.environ.get("PROMPTPAY_NUMBER")
-ROLE_GOLD_ID = int(os.environ.get("ROLE_GOLD_ID"))
-ROLE_SILVER_ID = int(os.environ.get("ROLE_SILVER_ID"))
-ROLE_BRONZE_ID = int(os.environ.get("ROLE_BRONZE_ID"))
-
-intents = nextcord.Intents.default()
+intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-def generate_qr(amount=None):
-    pid = PROMPTPAY_NUMBER
-    if len(pid) == 10 and pid.startswith('0'): pid = '66' + pid[1:]
-    payload = f"00020101021229370016A0000006770101110113{pid}5303764"
-    if amount:
-        amt = f"{float(amount):.2f}"
-        payload += f"54{len(amt):02d}{amt}"
-    payload += "5802TH6304"
-    crc = 0xFFFF
-    for b in payload.encode('ascii'):
-        crc ^= b << 8
-        for _ in range(8): crc = (crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1
-    payload += f"{crc & 0xFFFF:04X}"
-    img = qrcode.make(payload)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf
+# ===== ตั้งค่าจาก Railway Variables =====
+PROMPTPAY_NUMBER = os.getenv("PROMPTPAY_NUMBER")
+ROLE_GOLD_ID = int(os.getenv("ROLE_GOLD_ID"))
+ROLE_SILVER_ID = int(os.getenv("ROLE_SILVER_ID"))
+ROLE_BRONZE_ID = int(os.getenv("ROLE_BRONZE_ID"))
+ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", 0)) # ใส่ ID ยศแอดมิน เพิ่มใน Railway
+# ======================================
 
-class VipView(nextcord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @nextcord.ui.button(label="Gold 300฿", style=nextcord.ButtonStyle.success)
-    async def gold(self, _, i: nextcord.Interaction):
-        role = i.guild.get_role(ROLE_GOLD_ID)
-        await i.user.add_roles(role)
-        await i.response.send_message(f"รับยศ **Gold** แล้ว", file=nextcord.File(generate_qr(300), "qr.png"), ephemeral=True)
-    @nextcord.ui.button(label="Silver 200฿", style=nextcord.ButtonStyle.primary)
-    async def silver(self, _, i: nextcord.Interaction):
-        role = i.guild.get_role(ROLE_SILVER_ID)
-        await i.user.add_roles(role)
-        await i.response.send_message(f"รับยศ **Silver** แล้ว", file=nextcord.File(generate_qr(200), "qr.png"), ephemeral=True)
-    @nextcord.ui.button(label="Bronze 100฿", style=nextcord.ButtonStyle.secondary)
-    async def bronze(self, _, i: nextcord.Interaction):
-        role = i.guild.get_role(ROLE_BRONZE_ID)
-        await i.user.add_roles(role)
-        await i.response.send_message(f"รับยศ **Bronze** แล้ว", file=nextcord.File(generate_qr(100), "qr.png"), ephemeral=True)
+DB_PATH = "data.db"
 
-@bot.command()
-async def เมนู(ctx):
-    embed = nextcord.Embed(title="🏪 ร้านค้า VIP", description="กดปุ่มเลือกยศที่ต้องการ", color=0x00ff00)
-    await ctx.send(embed=embed, view=VipView())
+async def init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, credit INTEGER DEFAULT 0)")
+        await db.commit()
+
+async def get_credit(user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT credit FROM users WHERE user_id =?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+async def add_credit(user_id, amount):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("INSERT INTO users (user_id, credit) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET credit = credit +?", (user_id, amount, amount))
+        await db.commit()
+
+async def remove_credit(user_id, amount):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET credit = credit -? WHERE user_id =?", (amount, user_id))
+        await db.commit()
+
+def create_qr(amount):
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(f"promptpay://{PROMPTPAY_NUMBER}/{amount}")
+    qr.make(fit=True)
+    img = qr.make_image(fill='black', back_color='white')
+    buffer = BytesIO()
+    img.save(buffer, format='PNG')
+    buffer.seek(0)
+    return discord.File(buffer, filename="qr.png")
 
 @bot.event
 async def on_ready():
-    bot.add_view(VipView())
-    print(f"Bot {bot.user} Online แล้ว")
+    await init_db()
+    print(f'Bot {bot.user} Online แล้ว')
 
-app = Flask('')
-@app.route('/')
-def home(): return "Bot is alive!"
-def run(): app.run(host='0.0.0.0', port=8080)
-Thread(target=run).start()
-bot.run(BOT_TOKEN)
+@bot.command()
+async def เมนู(ctx):
+    embed = discord.Embed(title="🏪 ร้านค้า VIP - ระบบเติมเงิน", description="เลือกเมนูที่ต้องการด้านล่าง", color=0x00ff00)
+    view = MainMenuView(ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def เติม(ctx, member: discord.Member, amount: int):
+    await add_credit(member.id, amount)
+    await ctx.send(f"✅ เติมเงิน {amount}฿ ให้ {member.mention} สำเร็จ")
+
+class MainMenuView(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+
+    @discord.ui.button(label="💰 เติมเงิน", style=discord.ButtonStyle.green)
+    async def topup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("💰 **ระบบเติมเงิน**\n1. โอนมาที่พร้อมเพย์: `0886560336`\n2. แจ้งสลิปที่แชทนี้พร้อม @แอดมิน\n3. รอแอดมินเติมเครดิตให้ 1-5 นาที", ephemeral=True)
+
+    @discord.ui.button(label="💵 เช็คเครดิต", style=discord.ButtonStyle.blurple)
+    async def check_credit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        credit = await get_credit(interaction.user.id)
+        await interaction.response.send_message(f"💵 **เครดิตของคุณ:** {credit}฿", ephemeral=True)
+
+    @discord.ui.button(label="🏪 ร้านค้า VIP", style=discord.ButtonStyle.gray)
+    async def shop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(title="🏪 ร้านค้า VIP", description="เลือกยศที่ต้องการซื้อ ระบบจะหักเครดิตอัตโนมัติ", color=0xffd700)
+        view = ShopView(interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+class ShopView(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+
+    async def buy_role(self, interaction, role_id, price, role_name):
+        credit = await get_credit(interaction.user.id)
+        if credit < price:
+            await interaction.response.send_message(f"❌ เครดิตไม่พอ ต้องการ {price}฿ แต่คุณมี {credit}฿\nกด `💰 เติมเงิน` ก่อน", ephemeral=True)
+            return
+
+        role = interaction.guild.get_role(role_id)
+        if role in interaction.user.roles:
+            await interaction.response.send_message(f"❌ คุณมียศ {role_name} อยู่แล้ว", ephemeral=True)
+            return
+
+        await remove_credit(interaction.user.id, price)
+        await interaction.user.add_roles(role)
+        new_credit = await get_credit(interaction.user.id)
+        await interaction.response.send_message(f"✅ ซื้อ {role_name} สำเร็จ! หัก {price}฿\n💵 เครดิตคงเหลือ: {new_credit}฿", ephemeral=True)
+
+    @discord.ui.button(label="VIP Gold 300฿", style=discord.ButtonStyle.yellow)
+    async def gold(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.buy_role(interaction, ROLE_GOLD_ID, 300, "VIP Gold")
+
+    @discord.ui.button(label="VIP Silver 200฿", style=discord.ButtonStyle.grey)
+    async def silver(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.buy_role(interaction, ROLE_SILVER_ID, 200, "VIP Silver")
+
+    @discord.ui.button(label="VIP Bronze 100฿", style=discord.ButtonStyle.blurple)
+    async def bronze(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.buy_role(interaction, ROLE_BRONZE_ID, 100, "VIP Bronze")
+
+bot.run(os.getenv("BOT_TOKEN"))
