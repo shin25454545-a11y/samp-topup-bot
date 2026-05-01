@@ -60,13 +60,29 @@ class AddCreditModal(nextcord.ui.Modal):
             user = await bot.fetch_user(user_id)
             await interaction.response.send_message(f"เติม {amount}฿ ให้ {user.mention} สำเร็จ\nยอดปัจจุบัน: {get_credit(user_id)}฿", ephemeral=True)
             
-            # ส่ง Log
             if ADMIN_CHANNEL_ID != 0:
                 channel = bot.get_channel(ADMIN_CHANNEL_ID)
                 if channel:
                     await channel.send(f"[ADMIN] {interaction.user.mention} เติม {amount}฿ ให้ {user.mention}")
         except:
             await interaction.response.send_message("ผิดพลาด! เช็ค ID กับจำนวนเงินอีกที", ephemeral=True)
+
+# ---------- ฟังก์ชันซื้อของกลาง ----------
+async def buy_role(interaction, role_name, price):
+    credit = get_credit(interaction.user.id)
+    if credit < price:
+        return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - credit}฿", ephemeral=True)
+    
+    role = nextcord.utils.get(interaction.guild.roles, name=role_name)
+    if not role:
+        return await interaction.response.send_message(f"ซื้อสำเร็จ แต่หา @{role_name} ในเซิฟไม่เจอ แจ้งแอดมินเช็คชื่อยศที", ephemeral=True)
+    
+    if role in interaction.user.roles:
+        return await interaction.response.send_message(f"ท่านมี `ยศ {role_name}` อยู่แล้ว", ephemeral=True)
+
+    add_credit(interaction.user.id, -price)
+    await interaction.user.add_roles(role)
+    await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
 
 # ---------- ปุ่มเมนูหลัก ----------
 class MainMenu(nextcord.ui.View): 
@@ -90,7 +106,8 @@ class MainMenu(nextcord.ui.View):
 
     @nextcord.ui.button(label="ร้านค้า", style=nextcord.ButtonStyle.gray, custom_id="btn_shop", emoji="🛒") 
     async def shop_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
-        await interaction.response.send_message(embed=nextcord.Embed(title="🛒 ร้านค้า", description="เลือกสินค้าที่ต้องการ"), view=ShopMenu(), ephemeral=True)
+        embed = nextcord.Embed(title="🛒 ร้านค้า VIP", description="เลือกยศที่ต้องการ\nกดซื้อปุ๊บได้ยศทันที")
+        await interaction.response.send_message(embed=embed, view=ShopMenu(), ephemeral=True)
 
     @nextcord.ui.button(label="แอดมินเติมเงิน", style=nextcord.ButtonStyle.red, custom_id="btn_admin", emoji="⚙️") 
     async def admin_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
@@ -98,40 +115,22 @@ class MainMenu(nextcord.ui.View):
             return await interaction.response.send_message("ใช้ได้เฉพาะแอดมินเท่านั้น", ephemeral=True)
         await interaction.response.send_modal(AddCreditModal())
 
-# ---------- ปุ่มร้านค้า ----------
+# ---------- ปุ่มร้านค้า ครบ 3 ยศ ----------
 class ShopMenu(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @nextcord.ui.button(label="ยศ VIP Golp 100฿", style=nextcord.ButtonStyle.green, custom_id="buy_vipgolp")
-    async def buy_vipgolp(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-        price = 100
-        credit = get_credit(interaction.user.id)
-        if credit < price:
-            return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - credit}฿", ephemeral=True)
-        
-        add_credit(interaction.user.id, -price)
-        vip_role = nextcord.utils.get(interaction.guild.roles, name="VIP Golp")
-        if vip_role:
-            await interaction.user.add_roles(vip_role)
-            await interaction.response.send_message(f"ซื้อ `ยศ VIP Golp` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
-        else:
-            await interaction.response.send_message("ซื้อสำเร็จ แต่หา @VIP Golp ในเซิฟไม่เจอ แจ้งแอดมินสร้างยศชื่อ `VIP Golp` ที", ephemeral=True)
+    @nextcord.ui.button(label="VIP Gold 300฿", style=nextcord.ButtonStyle.green, custom_id="buy_gold", emoji="🥇")
+    async def buy_gold(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await buy_role(interaction, "VIP Gold", 300)
 
-    @nextcord.ui.button(label="สีชื่อรุ้ง 50฿", style=nextcord.ButtonStyle.green, custom_id="buy_rainbow")
-    async def buy_rainbow(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-        price = 50
-        credit = get_credit(interaction.user.id)
-        if credit < price:
-            return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - credit}฿", ephemeral=True)
-        
-        add_credit(interaction.user.id, -price)
-        rainbow_role = nextcord.utils.get(interaction.guild.roles, name="สีรุ้ง")
-        if rainbow_role:
-            await interaction.user.add_roles(rainbow_role)
-            await interaction.response.send_message(f"ซื้อ `สีชื่อรุ้ง` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
-        else:
-            await interaction.response.send_message("ซื้อสำเร็จ แต่หา @สีรุ้ง ในเซิฟไม่เจอ แจ้งแอดมินสร้างยศชื่อ `สีรุ้ง` ที", ephemeral=True)
+    @nextcord.ui.button(label="VIP Silver 200฿", style=nextcord.ButtonStyle.gray, custom_id="buy_silver", emoji="🥈")
+    async def buy_silver(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await buy_role(interaction, "VIP Silver", 200)
+
+    @nextcord.ui.button(label="VIP Bronze 100฿", style=nextcord.ButtonStyle.red, custom_id="buy_bronze", emoji="🥉")
+    async def buy_bronze(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await buy_role(interaction, "VIP Bronze", 100)
 
 @bot.event 
 async def on_ready(): 
