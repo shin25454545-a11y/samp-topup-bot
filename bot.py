@@ -10,10 +10,9 @@ PROMPTPAY_ID = "0886560336"
 DATA_FILE = "topup_data.json"
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
 BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200"
-ADMIN_CHANNEL_ID = 0 # ใส่ ID ห้องแอดมินไว้ดู Log
-ANNOUNCE_CHANNEL_ID = 1499809858680000712 # ห้องประกาศคนซื้อ VIP
+ADMIN_CHANNEL_ID = 0
+ANNOUNCE_CHANNEL_ID = 1499809858680000712
 
-# --- ระบบข้อมูล ---
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -37,12 +36,10 @@ def add_credit(user_id, amount, is_topup=False):
         user["total_topup"] += amount
     save_data()
 
-# --- ตั้งค่าบอท ---
 intents = nextcord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- Modal เติมเงินแอดมิน ---
 class AddCreditModal(nextcord.ui.Modal):
     def __init__(self):
         super().__init__("เติมเครดิตให้สมาชิก")
@@ -60,7 +57,6 @@ class AddCreditModal(nextcord.ui.Modal):
             await interaction.response.send_message(f"เติม {amount}฿ ให้ {user.mention} สำเร็จ\nยอดปัจจุบัน: {get_user(user_id)['credit']}฿", ephemeral=True)
         except: await interaction.response.send_message("ผิดพลาด! เช็ค ID กับจำนวนเงินอีกที", ephemeral=True)
 
-# --- ฟังก์ชันซื้อของ ---
 async def buy_role(interaction, role_name, price):
     user = get_user(interaction.user.id)
     if user["credit"] < price: return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - user['credit']}฿", ephemeral=True)
@@ -72,7 +68,6 @@ async def buy_role(interaction, role_name, price):
     await interaction.user.add_roles(role)
     await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_user(interaction.user.id)['credit']}฿", ephemeral=True)
 
-    # แจ้งเตือนคนซื้อ VIP
     if ANNOUNCE_CHANNEL_ID!= 0:
         channel = bot.get_channel(ANNOUNCE_CHANNEL_ID)
         if channel:
@@ -80,7 +75,6 @@ async def buy_role(interaction, role_name, price):
             embed.set_thumbnail(url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
             await channel.send(embed=embed)
 
-# --- View หลัก ---
 class MainMenu(nextcord.ui.View):
     def __init__(self): super().__init__(timeout=None)
 
@@ -103,7 +97,6 @@ class MainMenu(nextcord.ui.View):
         if not interaction.user.guild_permissions.administrator: return await interaction.response.send_message("ใช้ได้เฉพาะแอดมินเท่านั้น", ephemeral=True)
         await interaction.response.send_modal(AddCreditModal())
 
-# --- View ร้านค้า ---
 class ShopMenu(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -127,17 +120,17 @@ class ShopMenu(nextcord.ui.View):
         add_credit(interaction.user.id, -50)
 
         roll = random.randint(1, 100)
-        if roll <= 5: # 5% ได้ VIP Bronze 1 วัน
+        if roll <= 5:
             role = nextcord.utils.get(interaction.guild.roles, name="VIP Bronze")
             if role and role not in interaction.user.roles:
                 await interaction.user.add_roles(role)
                 msg = "🎉 แจ็คพอต! คุณได้รับ `VIP Bronze` ไปใช้ฟรี 1 วัน!"
             else: msg = "🎉 แจ็คพอต! แต่คุณมี VIP อยู่แล้ว คืนเงิน 100฿ แทน"; add_credit(interaction.user.id, 100)
-        elif roll <= 20: # 15% ได้เครดิต x2
+        elif roll <= 20:
             add_credit(interaction.user.id, 100); msg = "💰 โชคดี! ได้รับเครดิตคืน 100฿"
-        elif roll <= 50: # 30% ได้เครดิตคืน
+        elif roll <= 50:
             add_credit(interaction.user.id, 50); msg = "😮 เกือบไป! ได้เครดิต 50฿ คืน"
-        else: # 50% แห้ว
+        else:
             msg = "😢 เสียใจด้วย รอบนี้ไม่ได้อะไรเลย ลองใหม่!"
         await interaction.response.send_message(msg, ephemeral=True)
 
@@ -150,7 +143,6 @@ class ShopMenu(nextcord.ui.View):
         embed.set_footer(text="*สิทธิ์จะมีผลเมื่อเซิฟ SAMP เปิดให้บริการ")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# --- คำสั่ง Slash ---
 @bot.slash_command(name="daily", description="รับเครดิตรายวัน 10฿")
 async def daily(interaction: nextcord.Interaction):
     user = get_user(interaction.user.id)
@@ -196,12 +188,13 @@ async def topuprank(interaction: nextcord.Interaction):
     embed.description = desc if desc else "ยังไม่มีข้อมูล"
     await interaction.response.send_message(embed=embed)
 
-# --- เริ่มทำงาน ---
 @bot.event
 async def on_ready():
     print(f'BOT ONLINE: {bot.user}')
     bot.add_view(MainMenu())
     bot.add_view(ShopMenu())
+    await bot.sync_commands() # สำคัญมาก! ซิงค์คำสั่ง Slash
+    print('Slash Commands Synced!')
 
 @bot.command(name="เมนู")
 @commands.has_permissions(administrator=True)
