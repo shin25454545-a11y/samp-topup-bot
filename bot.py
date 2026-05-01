@@ -4,7 +4,7 @@ import json
 import os 
 
 TOKEN = os.getenv("DISCORD_TOKEN") 
-PROMPTPAY_ID = "0886560336"
+PROMPTPAY_ID = "0886560336" 
 DATA_FILE = "topup_data.json" 
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png" 
 
@@ -16,7 +16,7 @@ else:
 
 intents = nextcord.Intents.default() 
 intents.message_content = True 
-bot = commands.Bot(command_prefix='!', intents=intents)  # ← แก้บรรทัดนี้
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 def save_data(): 
     with open(DATA_FILE, 'w', encoding='utf-8') as f: 
@@ -26,18 +26,20 @@ class TopupMenu(nextcord.ui.View):
     def __init__(self): 
         super().__init__(timeout=None) 
     
-    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green) 
+    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green, custom_id="topup_button_persistent") 
     async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
-        await interaction.response.send_message( 
-            f"**สแกน QR เพื่อเติมเงิน**\nPromptPay: `{PROMPTPAY_ID}`\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้", 
-            file=await nextcord.File.from_url(QR_IMAGE_URL), 
-            ephemeral=True 
-        ) 
+        embed = nextcord.Embed(
+            title="สแกน QR เพื่อเติมเงิน",
+            description=f"PromptPay: `{PROMPTPAY_ID}`\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้",
+            color=0x00ff00
+        )
+        embed.set_image(url=QR_IMAGE_URL)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.event 
 async def on_ready(): 
     print(f'BOT ONLINE: {bot.user}') 
-    bot.add_view(TopupMenu()) 
+    bot.add_view(TopupMenu())
 
 @bot.command() 
 @commands.has_permissions(administrator=True) 
