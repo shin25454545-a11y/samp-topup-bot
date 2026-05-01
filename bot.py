@@ -13,16 +13,20 @@ BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&
 ADMIN_CHANNEL_ID = 0
 ANNOUNCE_CHANNEL_ID = 1499809858680000712
 
-# --- ระบบข้อมูล แก้ KeyError ---
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE, 'r', encoding='utf-8') as f:
         data = json.load(f)
 else:
     data = {}
 
-# กันไฟล์เก่าโครงสร้างไม่ครบ
+# กันไฟล์เก่าโครงสร้างไม่ครบ + เพิ่มสต็อก
 if "users" not in data: data["users"] = {}
 if "codes" not in data: data["codes"] = {}
+if "stock" not in data: data["stock"] = {
+    "VIP Gold": 5, # ตั้งสต็อกเริ่มต้นตรงนี้
+    "VIP Silver": 10,
+    "VIP Bronze": 20
+}
 
 def save_data():
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -40,6 +44,14 @@ def add_credit(user_id, amount, is_topup=False):
     if is_topup and amount > 0:
         user["total_topup"] += amount
     save_data()
+
+def get_stock(item_name):
+    return data["stock"].get(item_name, 0)
+
+def update_stock(item_name, amount):
+    if item_name in data["stock"]:
+        data["stock"][item_name] += amount
+        save_data()
 
 intents = nextcord.Intents.default()
 intents.message_content = True
@@ -63,21 +75,29 @@ class AddCreditModal(nextcord.ui.Modal):
         except: await interaction.response.send_message("ผิดพลาด! เช็ค ID กับจำนวนเงินอีกที", ephemeral=True)
 
 async def buy_role(interaction, role_name, price):
+    # เช็คสต็อกก่อน
+    if get_stock(role_name) <= 0:
+        return await interaction.response.send_message(f"❌ `ยศ {role_name}` สินค้าหมดแล้ว รอแอดมินเติมสต็อกนะ", ephemeral=True)
+
     user = get_user(interaction.user.id)
     if user["credit"] < price: return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - user['credit']}฿", ephemeral=True)
     role = nextcord.utils.get(interaction.guild.roles, name=role_name)
     if not role: return await interaction.response.send_message(f"ซื้อสำเร็จ แต่หา @{role_name} ในเซิฟไม่เจอ", ephemeral=True)
     if role in interaction.user.roles: return await interaction.response.send_message(f"ท่านมี `ยศ {role_name}` อยู่แล้ว", ephemeral=True)
 
+    # หักเงิน + ตัดสต็อก
     add_credit(interaction.user.id, -price)
+    update_stock(role_name, -1)
     await interaction.user.add_roles(role)
-    await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_user(interaction.user.id)['credit']}฿", ephemeral=True)
+
+    await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_user(interaction.user.id)['credit']}฿\n📦 คงเหลือ: {get_stock(role_name)} สิทธิ์", ephemeral=True)
 
     if ANNOUNCE_CHANNEL_ID!= 0:
         channel = bot.get_channel(ANNOUNCE_CHANNEL_ID)
         if channel:
             embed = nextcord.Embed(title="🎉 มีคนอัพเกรด VIP!", description=f"{interaction.user.mention} เพิ่งซื้อ `ยศ {role_name}` สุดโหด!", color=0xFFD700)
             embed.set_thumbnail(url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
+            embed.set_footer(text=f"เหลืออีกแค่ {get_stock(role_name)} สิทธิ์เท่านั้น!")
             await channel.send(embed=embed)
 
 class MainMenu(nextcord.ui.View):
@@ -94,7 +114,10 @@ class MainMenu(nextcord.ui.View):
 
     @nextcord.ui.button(label="ร้านค้า VIP", style=nextcord.ButtonStyle.gray, custom_id="btn_shop", emoji="🛒")
     async def shop_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-        embed = nextcord.Embed(title="🛒 ร้านค้า VIP", description="เลือกยศที่ต้องการ หรือกด `ดูสิทธิ์` เพื่อดูความสามารถ", color=0xFFD700)
+        embed = nextcord.Embed(title="🛒 ร้านค้า VIP [LIMITED]", description="**สินค้ามีจำนวนจำกัด หมดแล้วหมดเลย!**\nเลือกยศที่ต้องการ หรือกด `ดูสิทธิ์` เพื่อดูความสามารถ", color=0xFFD700)
+        embed.add_field(name="🥇 VIP Gold - 300฿", value=f"📦 คงเหลือ: `{get_stock('VIP Gold')}` สิทธิ์", inline=True)
+        embed.add_field(name="🥈 VIP Silver - 200฿", value=f"📦 คงเหลือ: `{get_stock('VIP Silver')}` สิทธิ์", inline=True)
+        embed.add_field(name="🥉 VIP Bronze - 100฿", value=f"📦 คงเหลือ: `{get_stock('VIP Bronze')}` สิทธิ์", inline=True)
         await interaction.response.send_message(embed=embed, view=ShopMenu(), ephemeral=True)
 
     @nextcord.ui.button(label="แอดมินเติมเงิน", style=nextcord.ButtonStyle.red, custom_id="btn_admin", emoji="⚙️", row=1)
@@ -105,6 +128,10 @@ class MainMenu(nextcord.ui.View):
 class ShopMenu(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        # ปิดปุ่มถ้าของหมด
+        self.buy_gold.disabled = get_stock("VIP Gold") <= 0
+        self.buy_silver.disabled = get_stock("VIP Silver") <= 0
+        self.buy_bronze.disabled = get_stock("VIP Bronze") <= 0
 
     @nextcord.ui.button(label="VIP Gold 300฿", style=nextcord.ButtonStyle.green, custom_id="buy_gold", emoji="🥇", row=0)
     async def buy_gold(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
@@ -123,14 +150,14 @@ class ShopMenu(nextcord.ui.View):
         user = get_user(interaction.user.id)
         if user["credit"] < 50: return await interaction.response.send_message("เครดิตไม่พอ! ต้องใช้ 50฿", ephemeral=True)
         add_credit(interaction.user.id, -50)
-
         roll = random.randint(1, 100)
         if roll <= 5:
             role = nextcord.utils.get(interaction.guild.roles, name="VIP Bronze")
-            if role and role not in interaction.user.roles:
+            if role and role not in interaction.user.roles and get_stock("VIP Bronze") > 0:
                 await interaction.user.add_roles(role)
-                msg = "🎉 แจ็คพอต! คุณได้รับ `VIP Bronze` ไปใช้ฟรี 1 วัน!"
-            else: msg = "🎉 แจ็คพอต! แต่คุณมี VIP อยู่แล้ว คืนเงิน 100฿ แทน"; add_credit(interaction.user.id, 100)
+                update_stock("VIP Bronze", -1)
+                msg = "🎉 แจ็คพอต! คุณได้รับ `VIP Bronze` ไปใช้ฟรี!"
+            else: msg = "🎉 แจ็คพอต! แต่ของหมด/มี VIP แล้ว คืนเงิน 100฿ แทน"; add_credit(interaction.user.id, 100)
         elif roll <= 20:
             add_credit(interaction.user.id, 100); msg = "💰 โชคดี! ได้รับเครดิตคืน 100฿"
         elif roll <= 50:
@@ -193,12 +220,28 @@ async def topuprank(interaction: nextcord.Interaction):
     embed.description = desc if desc else "ยังไม่มีข้อมูล"
     await interaction.response.send_message(embed=embed)
 
+@bot.slash_command(name="addstock", description="[แอดมิน] เติมสต็อกสินค้า")
+@commands.has_permissions(administrator=True)
+async def addstock(interaction: nextcord.Interaction, item: str, amount: int):
+    if item not in data["stock"]:
+        return await interaction.response.send_message(f"ไม่มีสินค้าชื่อ `{item}` ในระบบ", ephemeral=True)
+    update_stock(item, amount)
+    await interaction.response.send_message(f"เติมสต็อก `{item}` +{amount} สำเร็จ\nคงเหลือตอนนี้: {get_stock(item)} ชิ้น", ephemeral=True)
+
+@bot.slash_command(name="stock", description="เช็คสต็อกสินค้าทั้งหมด")
+async def stock(interaction: nextcord.Interaction):
+    embed = nextcord.Embed(title="📦 สต็อกสินค้า VIP ปัจจุบัน", color=0x00D9FF)
+    for item, amount in data["stock"].items():
+        status = "✅ พร้อมขาย" if amount > 0 else "❌ สินค้าหมด"
+        embed.add_field(name=item, value=f"คงเหลือ: `{amount}` ชิ้น\n{status}", inline=True)
+    await interaction.response.send_message(embed=embed)
+
 @bot.event
 async def on_ready():
     print(f'BOT ONLINE: {bot.user}')
     bot.add_view(MainMenu())
     bot.add_view(ShopMenu())
-    await bot.sync_application_commands() # แก้ตรงนี้
+    await bot.sync_application_commands()
     print('Slash Commands Synced!')
 
 @bot.command(name="เมนู")
@@ -206,7 +249,7 @@ async def on_ready():
 async def menu_command(ctx):
     embed = nextcord.Embed(title="🏦 ระบบเติมเงิน & ร้านค้า VIP", description="**ยินดีต้อนรับสู่ร้านค้าเซิฟเรา**\nเติมเงิน รับยศ อัพเกรดได้ทันที ระบบออโต้ 24 ชม.", color=0xFFD700)
     embed.set_image(url=BANNER_URL)
-    embed.set_footer(text="🔥 โปรโมชั่นเปิดเซิฟ | ใช้ /daily รับฟรี 10฿ ทุกวัน")
+    embed.set_footer(text="🔥 โปรโมชั่นเปิดเซิฟ | ใช้ /daily รับฟรี 10฿ ทุกวัน | สินค้ามีจำนวนจำกัด!")
     await ctx.send(embed=embed, view=MainMenu())
 
 bot.run(TOKEN)
