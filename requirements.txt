@@ -2,4 +2,3 @@ nextcord
 Flask
 qrcode
 Pillow
-promptpayqr
