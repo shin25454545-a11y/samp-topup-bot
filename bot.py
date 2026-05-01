@@ -8,6 +8,7 @@ PROMPTPAY_ID = "0886560336"
 DATA_FILE = "topup_data.json" 
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
 ADMIN_CHANNEL_ID = 0 
+BANNER_URL = "https://i.imgur.com/VpV2g9G.png" # รูปแบนเนอร์ เปลี่ยนลิงก์ได้
 
 if os.path.exists(DATA_FILE): 
     with open(DATA_FILE, 'r', encoding='utf-8') as f: 
@@ -106,21 +107,9 @@ class ShopMenu(nextcord.ui.View):
     @nextcord.ui.button(label="ดูสิทธิ์ VIP", style=nextcord.ButtonStyle.blurple, custom_id="view_perks", emoji="📜", row=1)
     async def view_perks(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         embed = nextcord.Embed(title="📜 สิทธิพิเศษ VIP [สำหรับเซิฟ SAMP]", color=0x00FFFF)
-        embed.add_field(
-            name="🥉 VIP Bronze - 100฿", 
-            value="```1. คำสั่ง /vipheal ฮีลเลือด CD 10 นาที\n2. เปลี่ยนป้ายทะเบียนฟรี /vipplate\n3. เงินเดือน Payday +20%\n4. เกิดโรงบาลไม่เสียเงิน```", 
-            inline=False
-        )
-        embed.add_field(
-            name="🥈 VIP Silver - 200฿", 
-            value="```ได้สิทธิ์ Bronze ทั้งหมด +\n1. เสกรถ VIP /vipcar ใช้ได้ 24 ชม.\n2. ได้ปืนพกตอนเกิด /vipweapons\n3. ใช้สกินพิเศษ /vipskin\n4. ช่องเก็บของ +10```", 
-            inline=False
-        )
-        embed.add_field(
-            name="🥇 VIP Gold - 300฿", 
-            value="```ได้สิทธิ์ Silver ทั้งหมด +\n1. เสกเกราะ /viparmor CD 15 นาที\n2. เจ็ทแพ็ค /vipjetpack 5 นาที\n3. ไนตรัสฟรี /vipnos\n4. วาป /gotols /gotosf /gotolv\n5. ชื่อทอง [GOLD] ในเกม```", 
-            inline=False
-        )
+        embed.add_field(name="🥉 VIP Bronze - 100฿", value="```1. คำสั่ง /vipheal ฮีลเลือด CD 10 นาที\n2. เปลี่ยนป้ายทะเบียนฟรี /vipplate\n3. เงินเดือน Payday +20%\n4. เกิดโรงบาลไม่เสียเงิน```", inline=False)
+        embed.add_field(name="🥈 VIP Silver - 200฿", value="```ได้สิทธิ์ Bronze ทั้งหมด +\n1. เสกรถ VIP /vipcar ใช้ได้ 24 ชม.\n2. ได้ปืนพกตอนเกิด /vipweapons\n3. ใช้สกินพิเศษ /vipskin\n4. ช่องเก็บของ +10```", inline=False)
+        embed.add_field(name="🥇 VIP Gold - 300฿", value="```ได้สิทธิ์ Silver ทั้งหมด +\n1. เสกเกราะ /viparmor CD 15 นาที\n2. เจ็ทแพ็ค /vipjetpack 5 นาที\n3. ไนตรัสฟรี /vipnos\n4. วาป /gotols /gotosf /gotolv\n5. ชื่อทอง [GOLD] ในเกม```", inline=False)
         embed.set_footer(text="*สิทธิ์จะมีผลเมื่อเซิฟ SAMP เปิดให้บริการ")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -133,7 +122,13 @@ async def on_ready():
 @bot.command(name="เมนู") 
 @commands.has_permissions(administrator=True) 
 async def menu_command(ctx): 
-    embed = nextcord.Embed(title="🏦 ระบบเติมเงิน & ร้านค้า", description="เลือกเมนูที่ต้องการด้านล่าง", color=0x00ff00) 
+    embed = nextcord.Embed( 
+        title="🏦 ระบบเติมเงิน & ร้านค้า VIP", 
+        description="**ยินดีต้อนรับสู่ร้านค้าเซิฟเรา**\nเติมเงิน รับยศ อัพเกรดได้ทันที ระบบออโต้ 24 ชม.",
+        color=0xFFD700
+    ) 
+    embed.set_image(url=BANNER_URL)
+    embed.set_footer(text="🔥 โปรโมชั่นเปิดเซิฟ | ซื้อปุ๊บได้ปั๊บ")
     await ctx.send(embed=embed, view=MainMenu()) 
 
 bot.run(TOKEN)
