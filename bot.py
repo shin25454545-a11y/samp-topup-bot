@@ -8,9 +8,10 @@ import os
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PROMPTPAY_NUMBER = "0886560336"
-ROLE_GOLD_ID = int(os.environ.get("ROLE_GOLD_ID"))
-ROLE_SILVER_ID = int(os.environ.get("ROLE_SILVER_ID"))
-ROLE_BRONZE_ID = int(os.environ.get("ROLE_BRONZE_ID"))
+ROLE_GOLD_ID = 1499228473095356597
+ROLE_SILVER_ID = 1499228661335724072
+ROLE_BRONZE_ID = 1499228752234942566
+
 
 intents = nextcord.Intents.default()
 intents.message_content = True
