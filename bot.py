@@ -1,48 +1,53 @@
-import nextcord 
-from nextcord.ext import commands 
-import json 
-import os 
+import nextcord
+from nextcord.ext import commands
+import json
+import os
+import random
+import datetime
 
-TOKEN = os.getenv("DISCORD_TOKEN") 
-PROMPTPAY_ID = "0886560336" 
-DATA_FILE = "topup_data.json" 
+TOKEN = os.getenv("DISCORD_TOKEN")
+PROMPTPAY_ID = "0886560336"
+DATA_FILE = "topup_data.json"
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
-ADMIN_CHANNEL_ID = 0 
-BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200%22"
+BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200"
+ADMIN_CHANNEL_ID = 0 # ใส่ ID ห้องแอดมินไว้ดู Log
+ANNOUNCE_CHANNEL_ID = 1499809858680000712 # ห้องประกาศคนซื้อ VIP
 
+# --- ระบบข้อมูล ---
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+else:
+    data = {"users": {}, "codes": {}}
 
+def save_data():
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-if os.path.exists(DATA_FILE): 
-    with open(DATA_FILE, 'r', encoding='utf-8') as f: 
-        topup_data = json.load(f) 
-else: 
-    topup_data = {}
-
-def save_data(): 
-    with open(DATA_FILE, 'w', encoding='utf-8') as f: 
-        json.dump(topup_data, f, ensure_ascii=False, indent=4) 
-
-def get_credit(user_id):
-    user_data = topup_data.get(str(user_id), 0)
-    return user_data if isinstance(user_data, int) else user_data.get("credit", 0)
-
-def add_credit(user_id, amount):
+def get_user(user_id):
     user_id = str(user_id)
-    if user_id not in topup_data or isinstance(topup_data[user_id], int):
-        old_credit = get_credit(user_id)
-        topup_data[user_id] = {"credit": old_credit, "ingame": ""}
-    topup_data[user_id]["credit"] += amount
+    if user_id not in data["users"]:
+        data["users"][user_id] = {"credit": 0, "ingame": "", "last_daily": "", "total_topup": 0}
+    return data["users"][user_id]
+
+def add_credit(user_id, amount, is_topup=False):
+    user = get_user(user_id)
+    user["credit"] += amount
+    if is_topup and amount > 0:
+        user["total_topup"] += amount
     save_data()
 
-intents = nextcord.Intents.default() 
-intents.message_content = True 
+# --- ตั้งค่าบอท ---
+intents = nextcord.Intents.default()
+intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# --- Modal เติมเงินแอดมิน ---
 class AddCreditModal(nextcord.ui.Modal):
     def __init__(self):
         super().__init__("เติมเครดิตให้สมาชิก")
-        self.user_id = nextcord.ui.TextInput(label="ใส่ ID ผู้ใช้", placeholder="คลิกขวาที่ชื่อ > Copy User ID", required=True)
-        self.amount = nextcord.ui.TextInput(label="จำนวนเครดิต", placeholder="ใส่ตัวเลข เช่น 100", required=True)
+        self.user_id = nextcord.ui.TextInput(label="ใส่ ID ผู้ใช้", required=True)
+        self.amount = nextcord.ui.TextInput(label="จำนวนเครดิต", required=True)
         self.add_item(self.user_id)
         self.add_item(self.amount)
 
@@ -50,46 +55,55 @@ class AddCreditModal(nextcord.ui.Modal):
         try:
             user_id = int(self.user_id.value)
             amount = int(self.amount.value)
-            add_credit(user_id, amount)
+            add_credit(user_id, amount, is_topup=True)
             user = await bot.fetch_user(user_id)
-            await interaction.response.send_message(f"เติม {amount}฿ ให้ {user.mention} สำเร็จ\nยอดปัจจุบัน: {get_credit(user_id)}฿", ephemeral=True)
-            if ADMIN_CHANNEL_ID != 0:
-                channel = bot.get_channel(ADMIN_CHANNEL_ID)
-                if channel: await channel.send(f"[ADMIN] {interaction.user.mention} เติม {amount}฿ ให้ {user.mention}")
+            await interaction.response.send_message(f"เติม {amount}฿ ให้ {user.mention} สำเร็จ\nยอดปัจจุบัน: {get_user(user_id)['credit']}฿", ephemeral=True)
         except: await interaction.response.send_message("ผิดพลาด! เช็ค ID กับจำนวนเงินอีกที", ephemeral=True)
 
+# --- ฟังก์ชันซื้อของ ---
 async def buy_role(interaction, role_name, price):
-    credit = get_credit(interaction.user.id)
-    if credit < price: return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - credit}฿", ephemeral=True)
+    user = get_user(interaction.user.id)
+    if user["credit"] < price: return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - user['credit']}฿", ephemeral=True)
     role = nextcord.utils.get(interaction.guild.roles, name=role_name)
-    if not role: return await interaction.response.send_message(f"ซื้อสำเร็จ แต่หา @{role_name} ในเซิฟไม่เจอ แจ้งแอดมินเช็คชื่อยศที", ephemeral=True)
+    if not role: return await interaction.response.send_message(f"ซื้อสำเร็จ แต่หา @{role_name} ในเซิฟไม่เจอ", ephemeral=True)
     if role in interaction.user.roles: return await interaction.response.send_message(f"ท่านมี `ยศ {role_name}` อยู่แล้ว", ephemeral=True)
+
     add_credit(interaction.user.id, -price)
     await interaction.user.add_roles(role)
-    await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
+    await interaction.response.send_message(f"ซื้อ `ยศ {role_name}` สำเร็จ! หัก {price}฿ คงเหลือ {get_user(interaction.user.id)['credit']}฿", ephemeral=True)
 
-class MainMenu(nextcord.ui.View): 
-    def __init__(self): super().__init__(timeout=None) 
-    
-    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green, custom_id="btn_topup", emoji="💰") 
-    async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
+    # แจ้งเตือนคนซื้อ VIP
+    if ANNOUNCE_CHANNEL_ID!= 0:
+        channel = bot.get_channel(ANNOUNCE_CHANNEL_ID)
+        if channel:
+            embed = nextcord.Embed(title="🎉 มีคนอัพเกรด VIP!", description=f"{interaction.user.mention} เพิ่งซื้อ `ยศ {role_name}` สุดโหด!", color=0xFFD700)
+            embed.set_thumbnail(url=interaction.user.avatar.url if interaction.user.avatar else interaction.user.default_avatar.url)
+            await channel.send(embed=embed)
+
+# --- View หลัก ---
+class MainMenu(nextcord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
+
+    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green, custom_id="btn_topup", emoji="💰")
+    async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         await interaction.response.send_message(f"**สแกน QR เพื่อเติมเงิน**\nPromptPay: `{PROMPTPAY_ID}`\n\n**ลิงก์ QR:** {QR_IMAGE_URL}\n\nโอนแล้วแนบสลิปในห้องนี้ แล้วแท็กแอดมิน", ephemeral=True)
 
-    @nextcord.ui.button(label="เช็คเครดิต", style=nextcord.ButtonStyle.blurple, custom_id="btn_credit", emoji="💳") 
-    async def credit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
-        credit = get_credit(interaction.user.id)
-        await interaction.response.send_message(f"**เครดิตของ {interaction.user.mention}**\n💵 ยอดคงเหลือ: `{credit}฿`", ephemeral=True)
+    @nextcord.ui.button(label="เช็คเครดิต", style=nextcord.ButtonStyle.blurple, custom_id="btn_credit", emoji="💳")
+    async def credit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        user = get_user(interaction.user.id)
+        await interaction.response.send_message(f"**เครดิตของ {interaction.user.mention}**\n💵 ยอดคงเหลือ: `{user['credit']}฿`\n💎 ยอดเติมสะสม: `{user['total_topup']}฿`", ephemeral=True)
 
-    @nextcord.ui.button(label="ร้านค้า VIP", style=nextcord.ButtonStyle.gray, custom_id="btn_shop", emoji="🛒") 
-    async def shop_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
+    @nextcord.ui.button(label="ร้านค้า VIP", style=nextcord.ButtonStyle.gray, custom_id="btn_shop", emoji="🛒")
+    async def shop_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         embed = nextcord.Embed(title="🛒 ร้านค้า VIP", description="เลือกยศที่ต้องการ หรือกด `ดูสิทธิ์` เพื่อดูความสามารถ", color=0xFFD700)
         await interaction.response.send_message(embed=embed, view=ShopMenu(), ephemeral=True)
 
-    @nextcord.ui.button(label="แอดมินเติมเงิน", style=nextcord.ButtonStyle.red, custom_id="btn_admin", emoji="⚙️") 
-    async def admin_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
+    @nextcord.ui.button(label="แอดมินเติมเงิน", style=nextcord.ButtonStyle.red, custom_id="btn_admin", emoji="⚙️", row=1)
+    async def admin_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         if not interaction.user.guild_permissions.administrator: return await interaction.response.send_message("ใช้ได้เฉพาะแอดมินเท่านั้น", ephemeral=True)
         await interaction.response.send_modal(AddCreditModal())
 
+# --- View ร้านค้า ---
 class ShopMenu(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -106,7 +120,28 @@ class ShopMenu(nextcord.ui.View):
     async def buy_bronze(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         await buy_role(interaction, "VIP Bronze", 100)
 
-    @nextcord.ui.button(label="ดูสิทธิ์ VIP", style=nextcord.ButtonStyle.blurple, custom_id="view_perks", emoji="📜", row=1)
+    @nextcord.ui.button(label="กล่องสุ่ม 50฿", style=nextcord.ButtonStyle.blurple, custom_id="gacha", emoji="🎁", row=1)
+    async def gacha(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        user = get_user(interaction.user.id)
+        if user["credit"] < 50: return await interaction.response.send_message("เครดิตไม่พอ! ต้องใช้ 50฿", ephemeral=True)
+        add_credit(interaction.user.id, -50)
+
+        roll = random.randint(1, 100)
+        if roll <= 5: # 5% ได้ VIP Bronze 1 วัน
+            role = nextcord.utils.get(interaction.guild.roles, name="VIP Bronze")
+            if role and role not in interaction.user.roles:
+                await interaction.user.add_roles(role)
+                msg = "🎉 แจ็คพอต! คุณได้รับ `VIP Bronze` ไปใช้ฟรี 1 วัน!"
+            else: msg = "🎉 แจ็คพอต! แต่คุณมี VIP อยู่แล้ว คืนเงิน 100฿ แทน"; add_credit(interaction.user.id, 100)
+        elif roll <= 20: # 15% ได้เครดิต x2
+            add_credit(interaction.user.id, 100); msg = "💰 โชคดี! ได้รับเครดิตคืน 100฿"
+        elif roll <= 50: # 30% ได้เครดิตคืน
+            add_credit(interaction.user.id, 50); msg = "😮 เกือบไป! ได้เครดิต 50฿ คืน"
+        else: # 50% แห้ว
+            msg = "😢 เสียใจด้วย รอบนี้ไม่ได้อะไรเลย ลองใหม่!"
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @nextcord.ui.button(label="ดูสิทธิ์ VIP", style=nextcord.ButtonStyle.gray, custom_id="view_perks", emoji="📜", row=1)
     async def view_perks(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         embed = nextcord.Embed(title="📜 สิทธิพิเศษ VIP [สำหรับเซิฟ SAMP]", color=0x00FFFF)
         embed.add_field(name="🥉 VIP Bronze - 100฿", value="```1. คำสั่ง /vipheal ฮีลเลือด CD 10 นาที\n2. เปลี่ยนป้ายทะเบียนฟรี /vipplate\n3. เงินเดือน Payday +20%\n4. เกิดโรงบาลไม่เสียเงิน```", inline=False)
@@ -115,22 +150,65 @@ class ShopMenu(nextcord.ui.View):
         embed.set_footer(text="*สิทธิ์จะมีผลเมื่อเซิฟ SAMP เปิดให้บริการ")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.event 
-async def on_ready(): 
-    print(f'BOT ONLINE: {bot.user}') 
+# --- คำสั่ง Slash ---
+@bot.slash_command(name="daily", description="รับเครดิตรายวัน 10฿")
+async def daily(interaction: nextcord.Interaction):
+    user = get_user(interaction.user.id)
+    today = datetime.date.today().isoformat()
+    if user["last_daily"] == today:
+        await interaction.response.send_message("วันนี้รับไปแล้ว มาใหม่พรุ่งนี้นะ", ephemeral=True)
+    else:
+        user["last_daily"] = today
+        add_credit(interaction.user.id, 10)
+        await interaction.response.send_message(f"รับเครดิตรายวัน 10฿ สำเร็จ! ยอดคงเหลือ: {user['credit']}฿", ephemeral=True)
+
+@bot.slash_command(name="code", description="ใช้โค้ดรับเครดิต")
+async def code(interaction: nextcord.Interaction, code: str):
+    code = code.upper()
+    if code in data["codes"]:
+        amount = data["codes"][code]
+        add_credit(interaction.user.id, amount)
+        del data["codes"][code]
+        save_data()
+        await interaction.response.send_message(f"ใช้โค้ด `{code}` สำเร็จ! ได้รับ {amount}฿ ยอดคงเหลือ: {get_user(interaction.user.id)['credit']}฿", ephemeral=True)
+    else:
+        await interaction.response.send_message("โค้ดไม่ถูกต้อง หรือถูกใช้ไปแล้ว", ephemeral=True)
+
+@bot.slash_command(name="createcode", description="[แอดมิน] สร้างโค้ดเติมเงิน")
+@commands.has_permissions(administrator=True)
+async def createcode(interaction: nextcord.Interaction, code: str, amount: int):
+    code = code.upper()
+    data["codes"][code] = amount
+    save_data()
+    await interaction.response.send_message(f"สร้างโค้ด `{code}` มูลค่า {amount}฿ สำเร็จ", ephemeral=True)
+
+@bot.slash_command(name="topuprank", description="ดู 10 อันดับคนเติมเงินเยอะสุด")
+async def topuprank(interaction: nextcord.Interaction):
+    sorted_users = sorted(data["users"].items(), key=lambda x: x[1].get("total_topup", 0), reverse=True)[:10]
+    embed = nextcord.Embed(title="🏆 ท็อป 10 สายเปย์เซิฟเวอร์", color=0xFFD700)
+    desc = ""
+    for i, (user_id, user_data) in enumerate(sorted_users):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            name = user.name
+        except: name = f"User ID: {user_id}"
+        desc += f"**{i+1}.** {name} - `{user_data.get('total_topup', 0)}฿`\n"
+    embed.description = desc if desc else "ยังไม่มีข้อมูล"
+    await interaction.response.send_message(embed=embed)
+
+# --- เริ่มทำงาน ---
+@bot.event
+async def on_ready():
+    print(f'BOT ONLINE: {bot.user}')
     bot.add_view(MainMenu())
     bot.add_view(ShopMenu())
 
-@bot.command(name="เมนู") 
-@commands.has_permissions(administrator=True) 
-async def menu_command(ctx): 
-    embed = nextcord.Embed( 
-        title="🏦 ระบบเติมเงิน & ร้านค้า VIP", 
-        description="**ยินดีต้อนรับสู่ร้านค้าเซิฟเรา**\nเติมเงิน รับยศ อัพเกรดได้ทันที ระบบออโต้ 24 ชม.",
-        color=0xFFD700
-    ) 
+@bot.command(name="เมนู")
+@commands.has_permissions(administrator=True)
+async def menu_command(ctx):
+    embed = nextcord.Embed(title="🏦 ระบบเติมเงิน & ร้านค้า VIP", description="**ยินดีต้อนรับสู่ร้านค้าเซิฟเรา**\nเติมเงิน รับยศ อัพเกรดได้ทันที ระบบออโต้ 24 ชม.", color=0xFFD700)
     embed.set_image(url=BANNER_URL)
-    embed.set_footer(text="🔥 โปรโมชั่นเปิดเซิฟ | ซื้อปุ๊บได้ปั๊บ")
-    await ctx.send(embed=embed, view=MainMenu()) 
+    embed.set_footer(text="🔥 โปรโมชั่นเปิดเซิฟ | ใช้ /daily รับฟรี 10฿ ทุกวัน")
+    await ctx.send(embed=embed, view=MainMenu())
 
 bot.run(TOKEN)
