@@ -1,53 +1,52 @@
-import nextcord
-from nextcord.ext import commands
-import json
-import os
+import nextcord 
+from nextcord.ext import commands 
+import json 
+import os 
 
-# Get Token from Railway Environment Variable
-TOKEN = os.getenv("DISCORD_TOKEN")
-PROMPTPAY_ID = "0886560336"  # Your PromptPay ID
-DATA_FILE = "topup_data.json"
-QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
+TOKEN = os.getenv("DISCORD_TOKEN") 
+PROMPTPAY_ID = "0886560336"
+DATA_FILE = "topup_data.json" 
+QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png" 
 
-if os.path.exists(DATA_FILE):
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        topup_data = json.load(f)
-else:
-    topup_data = {}
+if os.path.exists(DATA_FILE): 
+    with open(DATA_FILE, 'r', encoding='utf-8') as f: 
+        topup_data = json.load(f) 
+else: 
+    topup_data = {} 
 
-intents = nextcord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!')
+intents = nextcord.Intents.default() 
+intents.message_content = True 
+bot = commands.Bot(command_prefix='!', intents=intents)  # ← แก้บรรทัดนี้
 
-def save_data():
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(topup_data, f, ensure_ascii=False, indent=4)
+def save_data(): 
+    with open(DATA_FILE, 'w', encoding='utf-8') as f: 
+        json.dump(topup_data, f, ensure_ascii=False, indent=4) 
 
-class TopupMenu(nextcord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+class TopupMenu(nextcord.ui.View): 
+    def __init__(self): 
+        super().__init__(timeout=None) 
+    
+    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green) 
+    async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction): 
+        await interaction.response.send_message( 
+            f"**สแกน QR เพื่อเติมเงิน**\nPromptPay: `{PROMPTPAY_ID}`\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้", 
+            file=await nextcord.File.from_url(QR_IMAGE_URL), 
+            ephemeral=True 
+        ) 
 
-    @nextcord.ui.button(label="เติมเงิน", style=nextcord.ButtonStyle.green)
-    async def topup_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-        await interaction.response.send_message(
-            f"**สแกน QR เพื่อเติมเงิน**\nPromptPay: `{PROMPTPAY_ID}`\n\nโอนแล้วกรุณาแนบสลิปในห้องนี้",
-            file=await nextcord.File.from_url(QR_IMAGE_URL),
-            ephemeral=True
-        )
+@bot.event 
+async def on_ready(): 
+    print(f'BOT ONLINE: {bot.user}') 
+    bot.add_view(TopupMenu()) 
 
-@bot.event
-async def on_ready():
-    print(f'BOT ONLINE: {bot.user}')
-    bot.add_view(TopupMenu())
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setuptopup(ctx):
-    embed = nextcord.Embed(
-        title="ระบบเติมเงินอัตโนมัติ",
-        description="กดปุ่ม 'เติมเงิน' ด้านล่างเพื่อรับ QR Code",
-        color=0x00ff00
-    )
-    await ctx.send(embed=embed, view=TopupMenu())
+@bot.command() 
+@commands.has_permissions(administrator=True) 
+async def setuptopup(ctx): 
+    embed = nextcord.Embed( 
+        title="ระบบเติมเงินอัตโนมัติ", 
+        description="กดปุ่ม 'เติมเงิน' ด้านล่างเพื่อรับ QR Code", 
+        color=0x00ff00 
+    ) 
+    await ctx.send(embed=embed, view=TopupMenu()) 
 
 bot.run(TOKEN)
