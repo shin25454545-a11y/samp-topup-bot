@@ -8,7 +8,8 @@ PROMPTPAY_ID = "0886560336"
 DATA_FILE = "topup_data.json" 
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
 ADMIN_CHANNEL_ID = 0 
-BANNER_URL = "https://i.imgur.com/j4sE5qP.jpeg"
+BANNER_URL = "https://cdn.discordapp.com/attachments/1163420927702220822/1163421012166230056/gta-banner.png"
+
 
 
 if os.path.exists(DATA_FILE): 
