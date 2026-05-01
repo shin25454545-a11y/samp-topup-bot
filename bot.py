@@ -103,20 +103,20 @@ class ShopMenu(nextcord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @nextcord.ui.button(label="ยศ VIP 100฿", style=nextcord.ButtonStyle.green, custom_id="buy_vip")
-    async def buy_vip(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+    @nextcord.ui.button(label="ยศ Vip Golp 100฿", style=nextcord.ButtonStyle.green, custom_id="buy_vipgolp")
+    async def buy_vipgolp(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
         price = 100
         credit = get_credit(interaction.user.id)
         if credit < price:
             return await interaction.response.send_message(f"เครดิตไม่พอ! ขาดอีก {price - credit}฿", ephemeral=True)
         
         add_credit(interaction.user.id, -price)
-        vip_role = nextcord.utils.get(interaction.guild.roles, name="VIP")
+        vip_role = nextcord.utils.get(interaction.guild.roles, name="Vip Golp")
         if vip_role:
             await interaction.user.add_roles(vip_role)
-            await interaction.response.send_message(f"ซื้อ `ยศ VIP` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
+            await interaction.response.send_message(f"ซื้อ `ยศ Vip Golp` สำเร็จ! หัก {price}฿ คงเหลือ {get_credit(interaction.user.id)}฿", ephemeral=True)
         else:
-            await interaction.response.send_message("ซื้อสำเร็จ แต่หา @VIP ในเซิฟไม่เจอ แจ้งแอดมินสร้างยศชื่อ `VIP` ที", ephemeral=True)
+            await interaction.response.send_message("ซื้อสำเร็จ แต่หา @Vip Golp ในเซิฟไม่เจอ แจ้งแอดมินสร้างยศชื่อ `Vip Golp` ที", ephemeral=True)
 
     @nextcord.ui.button(label="สีชื่อรุ้ง 50฿", style=nextcord.ButtonStyle.green, custom_id="buy_rainbow")
     async def buy_rainbow(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
