@@ -8,7 +8,7 @@ PROMPTPAY_ID = "0886560336"
 DATA_FILE = "topup_data.json" 
 QR_IMAGE_URL = f"https://promptpay.io/{PROMPTPAY_ID}.png"
 ADMIN_CHANNEL_ID = 0 
-BANNER_URL = "https://cdn.discordapp.com/attachments/1163420927702220822/1163421012166230056/gta-banner.png"
+BANNER_URL = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1200%22"
 
 
 
