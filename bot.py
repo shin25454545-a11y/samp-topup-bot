@@ -40,9 +40,9 @@ def dashboard():
         <title>SAMP Dashboard</title>
         <style>
             *{margin:0;padding:0;box-sizing:border-box}body{font-family:Kanit,sans-serif;background:#0f1419;color:#fff;padding:20px}
-        .header h1{color:#ffd700;font-size:28px;margin-bottom:25px}.card{background:#1a2332;border-radius:15px;padding:20px;margin-bottom:15px}
-        .card-label{color:#8899a6;font-size:14px;margin-bottom:8px}.card-value{font-size:36px;font-weight:700}
-        .green{color:#2ecc71}.blue{color:#3498db}.yellow{color:#f1c40f}.top-item{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #2c3e50}
+       .header h1{color:#ffd700;font-size:28px;margin-bottom:25px}.card{background:#1a2332;border-radius:15px;padding:20px;margin-bottom:15px}
+       .card-label{color:#8899a6;font-size:14px;margin-bottom:8px}.card-value{font-size:36px;font-weight:700}
+       .green{color:#2ecc71}.blue{color:#3498db}.yellow{color:#f1c40f}.top-item{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #2c3e50}
         </style>
         <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700&display=swap" rel="stylesheet">
     </head>
@@ -119,8 +119,9 @@ async def on_ready():
     bot.add_view(MainMenuView())
     print(f"บอท {bot.user} ออนไลน์แล้ว!")
 
-def run_flask(): app.run(host='0.0.0.0', port=8080)
-def run_bot(): bot.run(TOKEN)
+# ---------- จุดที่แก้: สลับให้ Flask รันใน Thread แทน ----------
 if __name__ == '__main__':
-    threading.Thread(target=run_flask).start()
-    threading.Thread(target=run_bot).start()
+    # ให้ Flask รันใน Thread แยก
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)).start()
+    # ให้บอทรันใน Main Thread เพราะ nextcord บังคับ
+    bot.run(TOKEN)
