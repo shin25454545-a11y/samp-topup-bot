@@ -40,9 +40,9 @@ def dashboard():
         <title>SAMP Dashboard</title>
         <style>
             *{margin:0;padding:0;box-sizing:border-box}body{font-family:Kanit,sans-serif;background:#0f1419;color:#fff;padding:20px}
-         .header h1{color:#ffd700;font-size:28px;margin-bottom:25px}.card{background:#1a2332;border-radius:15px;padding:20px;margin-bottom:15px}
-         .card-label{color:#8899a6;font-size:14px;margin-bottom:8px}.card-value{font-size:36px;font-weight:700}
-         .green{color:#2ecc71}.blue{color:#3498db}.yellow{color:#f1c40f}.top-item{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #2c3e50}
+        .header h1{color:#ffd700;font-size:28px;margin-bottom:25px}.card{background:#1a2332;border-radius:15px;padding:20px;margin-bottom:15px}
+        .card-label{color:#8899a6;font-size:14px;margin-bottom:8px}.card-value{font-size:36px;font-weight:700}
+        .green{color:#2ecc71}.blue{color:#3498db}.yellow{color:#f1c40f}.top-item{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #2c3e50}
         </style>
         <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700&display=swap" rel="stylesheet">
     </head>
@@ -65,12 +65,17 @@ intents = nextcord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-class TopupModal(ui.Modal, title="แจ้งเติมเงิน"):
-    ingame_name = ui.TextInput(label="ชื่อในเกม", max_length=32)
-    amount = ui.TextInput(label="จำนวนเงินที่โอน (บาท)", max_length=5)
+class TopupModal(ui.Modal):
+    def __init__(self):
+        super().__init__(title="แจ้งเติมเงิน")
+        self.ingame_name = ui.TextInput(label="ชื่อในเกม", max_length=32)
+        self.amount = ui.TextInput(label="จำนวนเงินที่โอน (บาท)", max_length=5)
+        self.add_item(self.ingame_name)
+        self.add_item(self.amount)
+
     async def callback(self, interaction: nextcord.Interaction):
         log_channel = bot.get_channel(LOG_CHANNEL_ID)
-        await log_channel.send(f"🔔 {interaction.user.mention} แจ้งโอน\nชื่อเกม: {self.ingame_name}\nยอด: {self.amount}฿")
+        await log_channel.send(f"🔔 {interaction.user.mention} แจ้งโอน\nชื่อเกม: {self.ingame_name.value}\nยอด: {self.amount.value}฿")
         await interaction.response.send_message("✅ แจ้งโอนแล้ว รอแอดมินเช็คสลิป", ephemeral=True)
 
 class ConfirmTopupView(ui.View):
