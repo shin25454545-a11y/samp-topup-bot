@@ -8,14 +8,13 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ตั้งค่ายศกับราคา
+# ตั้งค่ายศกับราคา - แก้ role_id ให้ตรงกับเซิร์ฟท่าน
 ROLES_DATA = {
-    "VIP Gold": {"price": 300, "role_id": 1234567890}, # ใส่ role_id จริง
+    "VIP Gold": {"price": 300, "role_id": 1234567890},
     "VIP Silver": {"price": 150, "role_id": 1234567891},
     "VIP Bronze": {"price": 50, "role_id": 1234567892}
 }
 
-# โหลดเครดิตจากไฟล์
 def load_credits():
     credits = {}
     if os.path.exists("credits.txt"):
@@ -26,13 +25,11 @@ def load_credits():
                     credits[user_id] = int(amount)
     return credits
 
-# เซฟเครดิตลงไฟล์
 def save_credits(credits):
     with open("credits.txt", "w", encoding="utf-8") as f:
         for user_id, amount in credits.items():
             f.write(f"{user_id}:{amount}\n")
 
-# ฟังก์ชันบันทึก Log
 def log_purchase(user, item_name, price):
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     with open("purchase_log.txt", "a", encoding="utf-8") as f:
@@ -63,15 +60,13 @@ class ShopView(discord.ui.View):
             await interaction.response.send_message(f"❌ เครดิตไม่พอ! ท่านมี {user_credit}฿ แต่ {item_name} ราคา {price}฿", ephemeral=True)
             return
 
-        # หักเงิน
         credits[user_id] = user_credit - price
         save_credits(credits)
 
-        # ให้ยศ
         role = interaction.guild.get_role(role_id)
         if role:
             await interaction.user.add_roles(role)
-            log_purchase(interaction.user, item_name, price) # บันทึก log
+            log_purchase(interaction.user, item_name, price)
             await interaction.response.send_message(f"✅ ซื้อยศ {item_name} สำเร็จ! เครดิตคงเหลือ {credits[user_id]}฿", ephemeral=True)
         else:
             await interaction.response.send_message("❌ ไม่พบยศในเซิร์ฟเวอร์ ติดต่อแอดมิน", ephemeral=True)
@@ -93,7 +88,6 @@ async def เติม(ctx, member: discord.Member, amount: int):
     if not ctx.author.guild_permissions.administrator:
         await ctx.send("❌ คำสั่งนี้สำหรับแอดมินเท่านั้น")
         return
-
     credits = load_credits()
     user_id = str(member.id)
     credits[user_id] = credits.get(user_id, 0) + amount
@@ -109,18 +103,14 @@ async def เงิน(ctx):
 
 @bot.command()
 async def ประวัติ(ctx):
-    """ดู 10 รายการซื้อล่าสุด"""
     if not os.path.exists("purchase_log.txt"):
         await ctx.send("❌ ยังไม่มีประวัติการซื้อ")
         return
-
     with open("purchase_log.txt", "r", encoding="utf-8") as f:
         lines = f.readlines()[-10:]
-
     if not lines:
         await ctx.send("❌ ยังไม่มีประวัติการซื้อ")
         return
-
     embed = discord.Embed(title="📜 ประวัติการซื้อล่าสุด 10 รายการ", color=0x00ff00)
     log_text = "".join([f"`{line.strip()}`\n" for line in reversed(lines)])
     embed.description = log_text
@@ -128,7 +118,6 @@ async def ประวัติ(ctx):
 
 @bot.command()
 async def ยอดขาย(ctx):
-    """ดูยอดขายรวมทั้งหมด"""
     total = 0
     count = 0
     if os.path.exists("purchase_log.txt"):
@@ -140,7 +129,6 @@ async def ยอดขาย(ctx):
                         total += price
                         count += 1
                     except: pass
-
     embed = discord.Embed(title="💰 สรุปยอดขายร้าน", color=0xffd700)
     embed.add_field(name="ยอดขายรวม", value=f"`{total:,}฿`", inline=True)
     embed.add_field(name="จำนวนที่ขายได้", value=f"`{count} ยศ`", inline=True)
@@ -149,6 +137,12 @@ async def ยอดขาย(ctx):
 @bot.event
 async def on_ready():
     print(f"บอท {bot.user} ออนไลน์แล้ว!")
-    bot.add_view(ShopView()) # ทำให้ปุ่มกดได้ตลอดแม้รีบอท
+    bot.add_view(ShopView())
 
-bot.run("TOKEN ท่าน")
+# รันบอทโดยดึง Token จาก Environment Variables
+if __name__ == "__main__":
+    TOKEN = os.getenv("TOKEN")
+    if not TOKEN:
+        print("❌ ไม่เจอ TOKEN ใน Environment Variables")
+    else:
+        bot.run(TOKEN)
