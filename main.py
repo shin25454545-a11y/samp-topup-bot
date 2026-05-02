@@ -4,9 +4,12 @@ import os
 import sqlite3
 import asyncio
 from datetime import datetime
+import qrcode
+import io
 
 # --- ตั้งค่าส่วนตัว ---
 OWNER_ID = 1250051906076934154 # ID เจ้าของดิส
+PROMPTPAY_ID = "0886560336" # เบอร์พร้อมเพย์ท่าน ใส่ให้แล้ว
 
 ROLE_IDS = {
     "VIP Gold": 1499228473095356597,
@@ -32,6 +35,7 @@ def setup_database():
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, item TEXT, price INTEGER, timestamp TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS pending_topup (user_id INTEGER PRIMARY KEY, amount INTEGER, timestamp TEXT)''')
     conn.commit()
     conn.close()
 
@@ -58,6 +62,75 @@ def add_transaction(user_id, username, item, price):
     cursor.execute("INSERT INTO transactions (user_id, username, item, price, timestamp) VALUES (?,?,?,?,?)", (user_id, username, item, price, timestamp))
     conn.commit()
     conn.close()
+
+def set_pending_topup(user_id, amount):
+    conn = sqlite3.connect('shop.db')
+    cursor = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("REPLACE INTO pending_topup (user_id, amount, timestamp) VALUES (?,?,?)", (user_id, amount, timestamp))
+    conn.commit()
+    conn.close()
+
+# --- สร้าง QR PromptPay ---
+def generate_promptpay_qr(amount):
+    from promptpay import qrcode as pp_qr
+    payload = pp_qr.generate_payload(PROMPTPAY_ID, amount)
+    img = qrcode.make(payload)
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return discord.File(buffer, filename="promptpay.png")
+
+# --- Modal ใส่จำนวนเงิน ---
+class TopupModal(discord.ui.Modal, title="เติมเงินเข้ากระเป๋า"):
+    amount = discord.ui.TextInput(
+        label="จำนวนเงินที่ต้องการเติม",
+        placeholder="ใส่แค่ตัวเลข เช่น 100",
+        required=True,
+        max_length=5
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount_int = int(self.amount.value)
+            if amount_int <= 0:
+                return await interaction.response.send_message("❌ จำนวนเงินต้องมากกว่า 0", ephemeral=True)
+            if amount_int > 5000:
+                return await interaction.response.send_message("❌ เติมได้สูงสุดครั้งละ 5000฿", ephemeral=True)
+        except ValueError:
+            return await interaction.response.send_message("❌ กรุณาใส่เฉพาะตัวเลข", ephemeral=True)
+
+        set_pending_topup(interaction.user.id, amount_int)
+        qr_file = generate_promptpay_qr(amount_int)
+
+        embed = discord.Embed(
+            title="💵 สแกน QR เพื่อเติมเงิน",
+            description=f"**ยอดที่ต้องชำระ: {amount_int}฿**\n**เลขพร้อมเพย์: {PROMPTPAY_ID}**\n\n1. สแกน QR ด้านล่างด้วยแอพธนาคาร\n2. โอนเงินให้เรียบร้อย\n3. กดปุ่ม `✅ ฉันโอนแล้ว` ด้านล่าง\n4. รอแอดมินตรวจสอบ 1-3 นาที",
+            color=discord.Color.green()
+        )
+        embed.set_image(url="attachment://promptpay.png")
+        embed.set_footer(text="ระบบจะแจ้งเตือนเมื่อแอดมินอนุมัติยอดแล้ว")
+
+        await interaction.response.send_message(embed=embed, file=qr_file, view=ConfirmTopupView(), ephemeral=True)
+
+# --- ปุ่มยืนยันโอนแล้ว ---
+class ConfirmTopupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=600)
+
+    @discord.ui.button(label="✅ ฉันโอนแล้ว", style=discord.ButtonStyle.green)
+    async def confirm_topup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("📨 แจ้งแอดมินแล้ว! กรุณารอตรวจสอบยอด 1-3 นาที\nหากเงินเข้าแล้วบอทจะ DM ไปหาท่านทันที", ephemeral=True)
+
+        owner = await bot.fetch_user(OWNER_ID)
+        conn = sqlite3.connect('shop.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (interaction.user.id,))
+        result = cursor.fetchone()
+        conn.close()
+        amount = result[0] if result else 0
+
+        await owner.send(f"🔔 **แจ้งเตือนเติมเงิน**\nลูกค้า: {interaction.user.mention} `{interaction.user.id}`\nยอด: **{amount}฿**\n\nเช็คสลิปแล้วพิมพ์ `!อนุมัติ {interaction.user.id}` เพื่อเติมเงินให้ลูกค้า")
 
 # --- ส่วนของปุ่มกด ---
 class ShopView(discord.ui.View):
@@ -99,19 +172,23 @@ class ControlPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="💰 เช็คเครดิต", style=discord.ButtonStyle.green, custom_id="check_balance")
+    @discord.ui.button(label="💵 เติมเงิน", style=discord.ButtonStyle.green, custom_id="topup", row=0)
+    async def topup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TopupModal())
+
+    @discord.ui.button(label="💰 เช็คเครดิต", style=discord.ButtonStyle.gray, custom_id="check_balance", row=0)
     async def check_balance(self, interaction: discord.Interaction, button: discord.ui.Button):
         balance = get_balance(interaction.user.id)
         await interaction.response.send_message(f"💰 {interaction.user.mention} ท่านมีเครดิต **{balance}฿**", ephemeral=True)
 
-    @discord.ui.button(label="🛒 ร้านค้า VIP", style=discord.ButtonStyle.blurple, custom_id="open_shop")
+    @discord.ui.button(label="🛒 ร้านค้า VIP", style=discord.ButtonStyle.blurple, custom_id="open_shop", row=1)
     async def open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="🏪 ร้านค้า VIP", description="กดปุ่มด้านล่างเพื่อซื้อยศที่ต้องการได้เลย", color=discord.Color.gold())
         for role_name, price in ROLE_PRICES.items():
             embed.add_field(name=role_name, value=f"ราคา {price}฿", inline=True)
         await interaction.response.send_message(embed=embed, view=ShopView(), ephemeral=True)
 
-    @discord.ui.button(label="📜 ประวัติการซื้อ", style=discord.ButtonStyle.gray, custom_id="check_history")
+    @discord.ui.button(label="📜 ประวัติการซื้อ", style=discord.ButtonStyle.gray, custom_id="check_history", row=1)
     async def check_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         conn = sqlite3.connect('shop.db')
         cursor = conn.cursor()
@@ -133,6 +210,7 @@ class ControlPanelView(discord.ui.View):
 async def on_ready():
     bot.add_view(ShopView())
     bot.add_view(ControlPanelView())
+    bot.add_view(ConfirmTopupView())
     print(f'บอท {bot.user} ออนไลน์แล้ว!')
     print('------')
 
@@ -147,8 +225,30 @@ async def menu(ctx):
         color=discord.Color.purple()
     )
     embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed.set_footer(text="ร้าน VIP เปิด 24 ชม.")
+    embed.set_footer(text="ร้าน VIP เปิด 24 ชม. | เติมเงินออโต้ผ่าน QR")
     await ctx.send(embed=embed, view=ControlPanelView())
+
+@bot.command(name='อนุมัติ')
+@commands.has_permissions(administrator=True)
+async def approve_topup(ctx, member: discord.Member):
+    conn = sqlite3.connect('shop.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (member.id,))
+    result = cursor.fetchone()
+    if not result:
+        return await ctx.send(f"❌ ไม่พบรายการเติมเงินที่รออนุมัติของ {member.mention}")
+
+    amount = result[0]
+    update_balance(member.id, amount)
+    cursor.execute("DELETE FROM pending_topup WHERE user_id=?", (member.id,))
+    conn.commit()
+    conn.close()
+
+    await ctx.send(f"✅ อนุมัติเติมเงินให้ {member.mention} จำนวน **{amount}฿** สำเร็จ!")
+    try:
+        await member.send(f"🎉 เติมเงินสำเร็จ! คุณได้รับเครดิต **{amount}฿** แล้ว\nเครดิตปัจจุบัน: **{get_balance(member.id)}฿**")
+    except:
+        pass
 
 @bot.command(name='เติม')
 @commands.has_permissions(administrator=True)
