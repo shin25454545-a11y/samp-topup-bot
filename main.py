@@ -194,19 +194,24 @@ class ConfirmTopupView(discord.ui.View):
         )
         await owner.send(embed=embed, view=AdminApproveView(interaction.user.id, amount))
 
-# --- ส่วนของปุ่มกดซื้อ VIP ---
-class ShopView(discord.ui.View):
+# --- ระบบซื้อ VIP แบบ Select Menu ---
+class VIPSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="VIP Bronze - 50฿", description="เริ่มต้น EXP x1.5 | 30 วัน", emoji="🥉"),
+            discord.SelectOption(label="VIP Silver - 150฿", description="ยอดนิยม EXP x2.0 + /fly | 30 วัน", emoji="🥈"),
+            discord.SelectOption(label="VIP Gold - 300฿", description="ตัวท็อป EXP x3.0 + /god | 30 วัน", emoji="🥇")
+        ]
+        super().__init__(placeholder="เลือกแพ็กเกจ VIP ที่ต้องการ...", min_values=1, max_values=1, options=options, custom_id="vip_select")
+
+    async def callback(self, interaction: discord.Interaction):
+        role_name = self.values[0].split(' - ')[0]
+        await self.view.handle_purchase(interaction, role_name)
+
+class VIPShopView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        for role_name, price in ROLE_PRICES.items():
-            self.add_item(discord.ui.Button(label=f"{role_name} {price}฿", style=discord.ButtonStyle.primary, custom_id=f"buy_{role_name}"))
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        custom_id = interaction.data['custom_id']
-        if custom_id.startswith('buy_'):
-            role_name = custom_id.split('_')[1]
-            await self.handle_purchase(interaction, role_name)
-        return True
+        self.add_item(VIPSelect())
 
     async def handle_purchase(self, interaction: discord.Interaction, role_name: str):
         user = interaction.user
@@ -226,7 +231,18 @@ class ShopView(discord.ui.View):
             await user.add_roles(role)
             update_balance(user.id, -price)
             add_transaction(user.id, str(user), role_name, price)
-            await interaction.response.send_message(f"✅ ซื้อยศ {role_name} สำเร็จ! เครดิตคงเหลือ {balance - price}฿\nDM หาแอดมินเพื่อรับโค้ด VIP ในเกมได้เลย", ephemeral=True)
+
+            embed = discord.Embed(
+                title="<a:verify:123> ซื้อสำเร็จ!",
+                description=f"ยินดีด้วย {user.mention} คุณได้รับ **{role_name}** แล้ว!",
+                color=0x2ECC71
+            )
+            embed.add_field(name="💰 เครดิตคงเหลือ", value=f"`{balance - price}฿`", inline=True)
+            embed.add_field(name="⏰ หมดอายุ", value="`30 วัน`", inline=True)
+            embed.set_footer(text="DM หาแอดมินเพื่อรับโค้ด VIP ในเกม")
+            embed.set_thumbnail(url="https://i.imgur.com/uB6fE8Q.png")
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
         except discord.Forbidden:
             await interaction.response.send_message("❌ บอทไม่มีสิทธิ์ให้ยศ! ลากยศบอทไว้บนสุด", ephemeral=True)
 
@@ -246,56 +262,73 @@ class ControlPanelView(discord.ui.View):
 
     @discord.ui.button(label="🛒 ร้านค้า VIP", style=discord.ButtonStyle.blurple, custom_id="open_shop", row=1)
     async def open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="🏪 ร้านค้า VIP ในเกม",
-            description="**เลือกแพ็กเกจ VIP ที่ต้องการ อายุ 30 วันทุกระดับ**\nกดปุ่มด้านล่างเพื่อซื้อ ยศ Discord จะเข้าตัวทันที",
-            color=discord.Color.gold()
+        # Embed 1: แบนเนอร์หลัก
+        banner_embed = discord.Embed(
+            description="# <a:gem:1234567890> **PREMIUM MEMBERSHIP**\n### ปลดล็อคขีดจำกัด ขึ้นเป็นผู้ปกครองเซิร์ฟเวอร์",
+            color=0x000000
         )
+        banner_embed.set_image(url="https://i.imgur.com/your_banner.gif") # เปลี่ยนเป็นแบนเนอร์เกมท่าน
 
-        embed.add_field(
-            name="🥉 VIP Bronze - 50฿",
-            value="```\n"
-                  "✓ EXP x1.5 ฟาร์มเวลไว 50%\n"
-                  "✓ Drop Rate +20%\n"
-                  "✓ /kit bronze รับของรายวัน\n"
-                  "✓ วาร์ป /vip แมพพิเศษ\n"
-                  "✓ สีแชทน้ำตาล\n"
-                  "```",
+        # Embed 2: Bronze Card
+        bronze_embed = discord.Embed(
+            title="🥉 BRONZE TIER",
+            description="```yaml\nราคา: 50฿ | อายุ: 30 วัน\n```",
+            color=0xCD7F32
+        )
+        bronze_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x1.5`\n"
+                  "> `🍀` **Drop Rate** `+20%`\n"
+                  "> `🎁` **Daily Kit** `/kit bronze`\n"
+                  "> `📍` **VIP Warp** `/vip`\n"
+                  "> `🎨` **Chat Color** `น้ำตาล`",
             inline=False
         )
+        bronze_embed.set_thumbnail(url="https://i.imgur.com/bronze_icon.png")
 
-        embed.add_field(
-            name="🥈 VIP Silver - 150฿ [ยอดนิยม]",
-            value="```\n"
-                  "✓ EXP x2.0 ฟาร์มเวลไว 2 เท่า\n"
-                  "✓ Drop Rate +50%\n"
-                  "✓ /kit silver รับของรายวัน\n"
-                  "✓ /fly บินได้ในแมพฟาร์ม\n"
-                  "✓ /back วาร์ปกลับจุดตาย\n"
-                  "✓ ช่องกระเป๋า +2 แถว\n"
-                  "✓ สีแชทเงิน + [VIP]\n"
-                  "```",
+        # Embed 3: Silver Card
+        silver_embed = discord.Embed(
+            title="🥈 SILVER TIER",
+            description="```yaml\nราคา: 150฿ | อายุ: 30 วัน\n```",
+            color=0xC0C0C0
+        )
+        silver_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x2.0`\n"
+                  "> `🍀` **Drop Rate** `+50%`\n"
+                  "> `✈️` **Flight** `/fly`\n"
+                  "> `💀` **Back** `/back`\n"
+                  "> `🎒` **Inventory** `+2 Rows`\n"
+                  "> `🎨` **Chat Prefix** `[VIP]`",
             inline=False
         )
+        silver_embed.set_thumbnail(url="https://i.imgur.com/silver_icon.png")
 
-        embed.add_field(
-            name="🥇 VIP Gold - 300฿",
-            value="```\n"
-                  "✓ EXP x3.0 ฟาร์มเวลไว 3 เท่า\n"
-                  "✓ Drop Rate +100% ดรอป x2\n"
-                  "✓ /kit gold รับของรายวัน\n"
-                  "✓ /god อมตะ 5 นาที วันละ 3 ครั้ง\n"
-                  "✓ /heal ฮีลเต็ม วันละ 10 ครั้ง\n"
-                  "✓ /repair ซ่อมของฟรี\n"
-                  "✓ เข้าดันเจี้ยน VIP บอสแรร์\n"
-                  "✓ สีแชททอง + [GOLD VIP]\n"
-                  "```",
+        # Embed 4: Gold Card
+        gold_embed = discord.Embed(
+            title="🥇 GOLD TIER — BEST VALUE",
+            description="```yaml\nราคา: 300฿ | อายุ: 30 วัน\n```",
+            color=0xFFD700
+        )
+        gold_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x3.0` **MAX**\n"
+                  "> `🍀` **Drop Rate** `+100%`\n"
+                  "> `🛡️` **God Mode** `/god 5m`\n"
+                  "> `❤️` **Heal** `/heal`\n"
+                  "> `🔧` **Repair** `/repair` ฟรี\n"
+                  "> `🗝️` **Exclusive** `ดันเจี้ยน VIP`\n"
+                  "> `🎨` **Chat Prefix** `[GOLD VIP]`",
             inline=False
         )
+        gold_embed.set_thumbnail(url="https://i.imgur.com/gold_icon.png")
+        gold_embed.set_footer(text="เลือกแพ็กเกจด้านล่างเพื่อสั่งซื้อทันที", icon_url=interaction.guild.icon.url)
 
-        embed.set_footer(text="หลังซื้อ DM หาแอดมินเพื่อรับโค้ด VIP ในเกม | VIP อายุ 30 วัน")
-
-        await interaction.response.send_message(embed=embed, view=ShopView(), ephemeral=True)
+        await interaction.response.send_message(
+            embeds=[banner_embed, bronze_embed, silver_embed, gold_embed],
+            view=VIPShopView(),
+            ephemeral=True
+        )
 
     @discord.ui.button(label="📜 ประวัติการซื้อ", style=discord.ButtonStyle.gray, custom_id="check_history", row=1)
     async def check_history(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -317,9 +350,9 @@ class ControlPanelView(discord.ui.View):
 # --- คำสั่งบอท ---
 @bot.event
 async def on_ready():
-    bot.add_view(ShopView())
     bot.add_view(ControlPanelView())
     bot.add_view(ConfirmTopupView())
+    bot.add_view(VIPShopView())
     bot.add_view(AdminApproveView(0, 0))
     print(f'บอท {bot.user} ออนไลน์แล้ว!')
     print('------')
