@@ -1,4 +1,4 @@
 discord.py
-promptpay-qr
 flask
 qrcode
+promptpay
