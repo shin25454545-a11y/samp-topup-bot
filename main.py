@@ -8,14 +8,14 @@ import qrcode
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-from promptpay import qrcode as pp_qr # ใช้ชื่อ pp_qr กันสับสน
+from promptpay import qrcode as pp_qr
 
 # --- ตั้งค่า 3 จุดนี้เท่านั้น ---
-TOKEN = os.getenv("BOT_TOKEN") # ตั้งใน Railway แล้ว
-OWNER_ID = 125005190607694154 # ไอดีดิสคอร์ดท่าน
-PROMPTPAY_ID = "0886560336" # เบอร์พร้อมเพย์รับเงิน
+TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = 125005190607694154
+PROMPTPAY_ID = "0886560336"
 BANNER_URL = "https://i.ibb.co/1Y1Lw8Yn/4d288aac3efa4911e5bb8ade7d5262b6.jpg"
-ADMIN_CHANNEL_ID = ใส่ไอดีห้องแอดมิน # <-- เปลี่ยนตรงนี้
+ADMIN_CHANNEL_ID = 1500036196703797308 # <-- เปลี่ยนตรงนี้เป็นเลขห้องแอดมิน
 
 ROLE_IDS = {
     "VIP Bronze": 1499228752234942566,
@@ -78,7 +78,7 @@ class VIPShopView(discord.ui.View):
 
     async def create_qr(self, interaction: discord.Interaction, role_name: str):
         price = ROLE_PRICES[role_name]
-        payload = pp_qr.generate_payload(PROMPTPAY_ID, price) # ใช้ pp_qr ที่ import มา
+        payload = pp_qr.generate_payload(PROMPTPAY_ID, price)
         img = qrcode.make(payload)
         buffer = io.BytesIO()
         img.save(buffer, "PNG")
