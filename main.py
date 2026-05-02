@@ -12,7 +12,7 @@ from promptpay import qrcode as pp_qr
 
 # --- ตั้งค่า 3 จุดนี้เท่านั้น ---
 TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = 1250051906076934154
+OWNER_ID = 1250051906076934154  # ตัวใหม่ ถูกแล้ว
 PROMPTPAY_ID = "0886560336"
 BANNER_URL = "https://i.ibb.co/1Y1Lw8Yn/4d288aac3efa4911e5bb8ade7d5262b6.jpg"
 ADMIN_CHANNEL_ID = 1500036196703797308 # <-- เปลี่ยนตรงนี้เป็นเลขห้องแอดมิน
