@@ -322,7 +322,7 @@ class ControlPanelView(discord.ui.View):
             inline=False
         )
         gold_embed.set_thumbnail(url="https://i.imgur.com/gold_icon.png")
-        gold_embed.set_footer(text="เลือกแพ็กเกจด้านล่างเพื่อสั่งซื้อทันที", icon_url=interaction.guild.icon.url)
+        gold_embed.set_footer(text="เลือกแพ็กเกจด้านล่างเพื่อสั่งซื้อทันที", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
 
         await interaction.response.send_message(
             embeds=[banner_embed, bronze_embed, silver_embed, gold_embed],
