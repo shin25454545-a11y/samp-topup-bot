@@ -1,3 +1,4 @@
 discord.py
-promptpay
-qrcode[pil]
+promptpay-qr
+flask
+qrcode
