@@ -108,7 +108,6 @@ class AdminApproveView(discord.ui.View):
         if interaction.user.id!= OWNER_ID:
             return await interaction.response.send_message("❌ ปุ่มนี้สำหรับเจ้าของร้านเท่านั้น", ephemeral=True)
 
-        # เช็คว่ายังมีรายการรออนุมัติไหม
         pending_amount = get_pending_topup(self.user_id)
         if pending_amount == 0:
             await interaction.response.edit_message(content="⚠️ รายการนี้ถูกอนุมัติไปแล้ว", embed=None, view=None)
@@ -193,10 +192,9 @@ class ConfirmTopupView(discord.ui.View):
             description=f"ลูกค้า: {interaction.user.mention} `{interaction.user.id}`\nยอด: **{amount}฿**\n\nเช็คสลิปแล้วกดปุ่มด้านล่างเพื่ออนุมัติ",
             color=discord.Color.orange()
         )
-        # ส่ง DM พร้อมปุ่มอนุมัติให้แอดมิน
         await owner.send(embed=embed, view=AdminApproveView(interaction.user.id, amount))
 
-# --- ส่วนของปุ่มกด ---
+# --- ส่วนของปุ่มกดซื้อ VIP ---
 class ShopView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -228,10 +226,11 @@ class ShopView(discord.ui.View):
             await user.add_roles(role)
             update_balance(user.id, -price)
             add_transaction(user.id, str(user), role_name, price)
-            await interaction.response.send_message(f"✅ ซื้อยศ {role_name} สำเร็จ! เครดิตคงเหลือ {balance - price}฿", ephemeral=True)
+            await interaction.response.send_message(f"✅ ซื้อยศ {role_name} สำเร็จ! เครดิตคงเหลือ {balance - price}฿\nDM หาแอดมินเพื่อรับโค้ด VIP ในเกมได้เลย", ephemeral=True)
         except discord.Forbidden:
             await interaction.response.send_message("❌ บอทไม่มีสิทธิ์ให้ยศ! ลากยศบอทไว้บนสุด", ephemeral=True)
 
+# --- แผงควบคุมหลัก ---
 class ControlPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -247,9 +246,55 @@ class ControlPanelView(discord.ui.View):
 
     @discord.ui.button(label="🛒 ร้านค้า VIP", style=discord.ButtonStyle.blurple, custom_id="open_shop", row=1)
     async def open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(title="🏪 ร้านค้า VIP", description="กดปุ่มด้านล่างเพื่อซื้อยศที่ต้องการได้เลย", color=discord.Color.gold())
-        for role_name, price in ROLE_PRICES.items():
-            embed.add_field(name=role_name, value=f"ราคา {price}฿", inline=True)
+        embed = discord.Embed(
+            title="🏪 ร้านค้า VIP ในเกม",
+            description="**เลือกแพ็กเกจ VIP ที่ต้องการ อายุ 30 วันทุกระดับ**\nกดปุ่มด้านล่างเพื่อซื้อ ยศ Discord จะเข้าตัวทันที",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(
+            name="🥉 VIP Bronze - 50฿",
+            value="```\n"
+                  "✓ EXP x1.5 ฟาร์มเวลไว 50%\n"
+                  "✓ Drop Rate +20%\n"
+                  "✓ /kit bronze รับของรายวัน\n"
+                  "✓ วาร์ป /vip แมพพิเศษ\n"
+                  "✓ สีแชทน้ำตาล\n"
+                  "```",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🥈 VIP Silver - 150฿ [ยอดนิยม]",
+            value="```\n"
+                  "✓ EXP x2.0 ฟาร์มเวลไว 2 เท่า\n"
+                  "✓ Drop Rate +50%\n"
+                  "✓ /kit silver รับของรายวัน\n"
+                  "✓ /fly บินได้ในแมพฟาร์ม\n"
+                  "✓ /back วาร์ปกลับจุดตาย\n"
+                  "✓ ช่องกระเป๋า +2 แถว\n"
+                  "✓ สีแชทเงิน + [VIP]\n"
+                  "```",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🥇 VIP Gold - 300฿",
+            value="```\n"
+                  "✓ EXP x3.0 ฟาร์มเวลไว 3 เท่า\n"
+                  "✓ Drop Rate +100% ดรอป x2\n"
+                  "✓ /kit gold รับของรายวัน\n"
+                  "✓ /god อมตะ 5 นาที วันละ 3 ครั้ง\n"
+                  "✓ /heal ฮีลเต็ม วันละ 10 ครั้ง\n"
+                  "✓ /repair ซ่อมของฟรี\n"
+                  "✓ เข้าดันเจี้ยน VIP บอสแรร์\n"
+                  "✓ สีแชททอง + [GOLD VIP]\n"
+                  "```",
+            inline=False
+        )
+
+        embed.set_footer(text="หลังซื้อ DM หาแอดมินเพื่อรับโค้ด VIP ในเกม | VIP อายุ 30 วัน")
+
         await interaction.response.send_message(embed=embed, view=ShopView(), ephemeral=True)
 
     @discord.ui.button(label="📜 ประวัติการซื้อ", style=discord.ButtonStyle.gray, custom_id="check_history", row=1)
@@ -275,7 +320,6 @@ async def on_ready():
     bot.add_view(ShopView())
     bot.add_view(ControlPanelView())
     bot.add_view(ConfirmTopupView())
-    # ต้อง add view ของแอดมินด้วย ไม่งั้นบอทรีแล้วปุ่มพัง
     bot.add_view(AdminApproveView(0, 0))
     print(f'บอท {bot.user} ออนไลน์แล้ว!')
     print('------')
