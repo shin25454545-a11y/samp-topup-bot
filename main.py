@@ -10,9 +10,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ตั้งค่ายศกับราคา - แก้ role_id ให้ตรงกับเซิร์ฟท่าน
 ROLES_DATA = {
-    "VIP Gold": {"price": 300, "role_id": 1234567890},
-    "VIP Silver": {"price": 150, "role_id": 1234567891},
-    "VIP Bronze": {"price": 50, "role_id": 1234567892}
+    "VIP Gold": {"price": 300, "role_id": 1499228473095356597},
+    "VIP Silver": {"price": 150, "role_id": 1499228661335724072},
+    "VIP Bronze": {"price": 50, "role_id": 1499228752234942566}
 }
 
 def load_credits():
