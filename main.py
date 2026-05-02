@@ -71,6 +71,21 @@ def set_pending_topup(user_id, amount):
     conn.commit()
     conn.close()
 
+def get_pending_topup(user_id):
+    conn = sqlite3.connect('shop.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 0
+
+def delete_pending_topup(user_id):
+    conn = sqlite3.connect('shop.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM pending_topup WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
 # --- สร้าง QR PromptPay ---
 def generate_promptpay_qr(amount):
     from promptpay import qrcode as pp_qr
@@ -80,6 +95,54 @@ def generate_promptpay_qr(amount):
     img.save(buffer, format="PNG")
     buffer.seek(0)
     return discord.File(buffer, filename="promptpay.png")
+
+# --- ปุ่มอนุมัติสำหรับแอดมิน ---
+class AdminApproveView(discord.ui.View):
+    def __init__(self, user_id, amount):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.amount = amount
+
+    @discord.ui.button(label="✅ อนุมัติ", style=discord.ButtonStyle.green, custom_id="admin_approve_topup")
+    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id!= OWNER_ID:
+            return await interaction.response.send_message("❌ ปุ่มนี้สำหรับเจ้าของร้านเท่านั้น", ephemeral=True)
+
+        # เช็คว่ายังมีรายการรออนุมัติไหม
+        pending_amount = get_pending_topup(self.user_id)
+        if pending_amount == 0:
+            await interaction.response.edit_message(content="⚠️ รายการนี้ถูกอนุมัติไปแล้ว", embed=None, view=None)
+            return await interaction.followup.send("รายการนี้อนุมัติไปแล้ว", ephemeral=True)
+
+        update_balance(self.user_id, pending_amount)
+        delete_pending_topup(self.user_id)
+
+        member = await bot.fetch_user(self.user_id)
+        await interaction.response.edit_message(content=f"✅ อนุมัติเติมเงินให้ {member.mention} จำนวน **{pending_amount}฿** สำเร็จแล้ว", embed=None, view=None)
+
+        try:
+            await member.send(f"🎉 เติมเงินสำเร็จ! คุณได้รับเครดิต **{pending_amount}฿** แล้ว\nเครดิตปัจจุบัน: **{get_balance(self.user_id)}฿**")
+        except:
+            pass
+
+    @discord.ui.button(label="❌ ปฏิเสธ", style=discord.ButtonStyle.red, custom_id="admin_reject_topup")
+    async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id!= OWNER_ID:
+            return await interaction.response.send_message("❌ ปุ่มนี้สำหรับเจ้าของร้านเท่านั้น", ephemeral=True)
+
+        pending_amount = get_pending_topup(self.user_id)
+        if pending_amount == 0:
+            await interaction.response.edit_message(content="⚠️ รายการนี้ถูกจัดการไปแล้ว", embed=None, view=None)
+            return
+
+        delete_pending_topup(self.user_id)
+        member = await bot.fetch_user(self.user_id)
+        await interaction.response.edit_message(content=f"❌ ปฏิเสธรายการเติมเงินของ {member.mention} จำนวน **{pending_amount}฿** แล้ว", embed=None, view=None)
+
+        try:
+            await member.send(f"❌ รายการเติมเงิน **{pending_amount}฿** ของคุณถูกปฏิเสธ กรุณาติดต่อแอดมิน")
+        except:
+            pass
 
 # --- Modal ใส่จำนวนเงิน ---
 class TopupModal(discord.ui.Modal, title="เติมเงินเข้ากระเป๋า"):
@@ -123,14 +186,15 @@ class ConfirmTopupView(discord.ui.View):
         await interaction.response.send_message("📨 แจ้งแอดมินแล้ว! กรุณารอตรวจสอบยอด 1-3 นาที\nหากเงินเข้าแล้วบอทจะ DM ไปหาท่านทันที", ephemeral=True)
 
         owner = await bot.fetch_user(OWNER_ID)
-        conn = sqlite3.connect('shop.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (interaction.user.id,))
-        result = cursor.fetchone()
-        conn.close()
-        amount = result[0] if result else 0
+        amount = get_pending_topup(interaction.user.id)
 
-        await owner.send(f"🔔 **แจ้งเตือนเติมเงิน**\nลูกค้า: {interaction.user.mention} `{interaction.user.id}`\nยอด: **{amount}฿**\n\nเช็คสลิปแล้วพิมพ์ `!อนุมัติ {interaction.user.id}` เพื่อเติมเงินให้ลูกค้า")
+        embed = discord.Embed(
+            title="🔔 แจ้งเตือนเติมเงิน",
+            description=f"ลูกค้า: {interaction.user.mention} `{interaction.user.id}`\nยอด: **{amount}฿**\n\nเช็คสลิปแล้วกดปุ่มด้านล่างเพื่ออนุมัติ",
+            color=discord.Color.orange()
+        )
+        # ส่ง DM พร้อมปุ่มอนุมัติให้แอดมิน
+        await owner.send(embed=embed, view=AdminApproveView(interaction.user.id, amount))
 
 # --- ส่วนของปุ่มกด ---
 class ShopView(discord.ui.View):
@@ -211,6 +275,8 @@ async def on_ready():
     bot.add_view(ShopView())
     bot.add_view(ControlPanelView())
     bot.add_view(ConfirmTopupView())
+    # ต้อง add view ของแอดมินด้วย ไม่งั้นบอทรีแล้วปุ่มพัง
+    bot.add_view(AdminApproveView(0, 0))
     print(f'บอท {bot.user} ออนไลน์แล้ว!')
     print('------')
 
@@ -231,46 +297,18 @@ async def menu(ctx):
 @bot.command(name='อนุมัติ')
 @commands.has_permissions(administrator=True)
 async def approve_topup(ctx, member: discord.Member):
-    conn = sqlite3.connect('shop.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (member.id,))
-    result = cursor.fetchone()
-    if not result:
+    amount = get_pending_topup(member.id)
+    if amount == 0:
         return await ctx.send(f"❌ ไม่พบรายการเติมเงินที่รออนุมัติของ {member.mention}")
 
-    amount = result[0]
     update_balance(member.id, amount)
-    cursor.execute("DELETE FROM pending_topup WHERE user_id=?", (member.id,))
-    conn.commit()
-    conn.close()
+    delete_pending_topup(member.id)
 
     await ctx.send(f"✅ อนุมัติเติมเงินให้ {member.mention} จำนวน **{amount}฿** สำเร็จ!")
     try:
         await member.send(f"🎉 เติมเงินสำเร็จ! คุณได้รับเครดิต **{amount}฿** แล้ว\nเครดิตปัจจุบัน: **{get_balance(member.id)}฿**")
     except:
         pass
-
-@bot.command(name='เติม')
-@commands.has_permissions(administrator=True)
-async def add_money(ctx, member: discord.Member, amount: int):
-    if amount <= 0: return await ctx.send("❌ จำนวนเงินต้องมากกว่า 0")
-    update_balance(member.id, amount)
-    await ctx.send(f"✅ เติมเงินให้ {member.mention} จำนวน **{amount}฿** สำเร็จ!")
-
-@bot.command(name='ยอดขาย')
-@commands.has_permissions(administrator=True)
-async def sales_report(ctx):
-    conn = sqlite3.connect('shop.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT SUM(price), COUNT(id) FROM transactions")
-    result = cursor.fetchone()
-    conn.close()
-    total_sales = result[0] if result[0] else 0
-    total_items = result[1] if result[1] else 0
-    embed = discord.Embed(title="💰 สรุปยอดขายร้าน", color=discord.Color.green())
-    embed.add_field(name="ยอดขายรวม", value=f"{total_sales}฿")
-    embed.add_field(name="จำนวนที่ขายได้", value=f"{total_items} ยศ")
-    await ctx.send(embed=embed)
 
 # --- รันบอท ---
 setup_database()
