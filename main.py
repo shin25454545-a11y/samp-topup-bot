@@ -1,50 +1,46 @@
 import discord
 from discord.ext import commands
-import discord.ui
-import sqlite3
-import qrcode
-from PIL import Image
-import io
 import os
-from flask import Flask, request
-from threading import Thread
+import sqlite3
+import asyncio
+from datetime import datetime
+import qrcode
+import io
 
-# ===== ตั้งค่าเรียบร้อยตามที่ท่านให้ =====
-TOKEN = os.getenv("BOT_TOKEN") # ใส่ใน Secrets ชื่อ BOT_TOKEN
-PROMPTPAY_ID = "0886560336"
+# --- ตั้งค่าส่วนตัว ---
 OWNER_ID = 1250051906076934154
-GUILD_ID = 1499224151607738478
-
-ROLE_PRICES = {
-    "Bronze": 50,
-    "Silver": 150,
-    "Gold": 300
-}
+PROMPTPAY_ID = "0886560336"
 
 ROLE_IDS = {
-    "Bronze": 1499228752234942566,
-    "Silver": 1499228661335724072,
-    "Gold": 1499228473095356597
+    "VIP Gold": 1499228473095356597,
+    "VIP Silver": 1499228661335724072,
+    "VIP Bronze": 1499228752234942566
 }
 
-BANNER_URL = "https://i.ibb.co/1Y1Lw8Yn/4d288aac3efa4911e5bb8ade7d5262b6.jpg"
+ROLE_PRICES = {
+    "VIP Gold": 300,
+    "VIP Silver": 150,
+    "VIP Bronze": 50
+}
+# ---------------------
 
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
-app = Flask('')
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-# ===== ระบบ Database =====
+# --- ระบบฐานข้อมูล ---
 def setup_database():
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, item TEXT, price INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS pending_topup (user_id INTEGER PRIMARY KEY, amount INTEGER)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, item TEXT, price INTEGER, timestamp TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS pending_topup (user_id INTEGER PRIMARY KEY, amount INTEGER, timestamp TEXT)''')
     conn.commit()
     conn.close()
 
 def get_balance(user_id):
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     cursor.execute("SELECT balance FROM users WHERE user_id =?", (user_id,))
     result = cursor.fetchone()
@@ -52,7 +48,7 @@ def get_balance(user_id):
     return result[0] if result else 0
 
 def update_balance(user_id, amount):
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO users (user_id, balance) VALUES (?, 0)", (user_id,))
     cursor.execute("UPDATE users SET balance = balance +? WHERE user_id =?", (amount, user_id))
@@ -60,35 +56,37 @@ def update_balance(user_id, amount):
     conn.close()
 
 def add_transaction(user_id, username, item, price):
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO transactions (user_id, username, item, price) VALUES (?,?,?,?)", (user_id, username, item, price))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT INTO transactions (user_id, username, item, price, timestamp) VALUES (?,?,?,?,?)", (user_id, username, item, price, timestamp))
     conn.commit()
     conn.close()
 
 def set_pending_topup(user_id, amount):
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO pending_topup (user_id, amount) VALUES (?,?)", (user_id, amount))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("REPLACE INTO pending_topup (user_id, amount, timestamp) VALUES (?,?,?)", (user_id, amount, timestamp))
     conn.commit()
     conn.close()
 
 def get_pending_topup(user_id):
-    conn = sqlite3.connect('vip.db')
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT amount FROM pending_topup WHERE user_id =?", (user_id,))
+    cursor.execute("SELECT amount FROM pending_topup WHERE user_id=?", (user_id,))
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else 0
 
-def clear_pending_topup(user_id):
-    conn = sqlite3.connect('vip.db')
+def delete_pending_topup(user_id):
+    conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM pending_topup WHERE user_id =?", (user_id,))
+    cursor.execute("DELETE FROM pending_topup WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
-# ===== สร้าง QR PromptPay =====
+# --- สร้าง QR PromptPay ---
 def generate_promptpay_qr(amount):
     from promptpay import qrcode as pp_qr
     payload = pp_qr.generate_payload(PROMPTPAY_ID, amount)
@@ -98,171 +96,233 @@ def generate_promptpay_qr(amount):
     buffer.seek(0)
     return discord.File(buffer, filename="promptpay.png")
 
-# ===== ปุ่มยืนยันสลิป =====
-class ConfirmTopupView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=300)
-
-    @discord.ui.button(label="✅ ยืนยันสลิป", style=discord.ButtonStyle.green)
-    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        amount = get_pending_topup(interaction.user.id)
-        if amount == 0:
-            return await interaction.response.send_message("❌ คุณไม่มีรายการเติมเงินที่รอดำเนินการ", ephemeral=True)
-
-        owner = await bot.fetch_user(OWNER_ID)
-        guild = bot.get_guild(GUILD_ID)
-        approve_embed = discord.Embed(title="🔔 มีคนขอเติมเงิน", description=f"{interaction.user.mention} ขอเติม {amount}฿\nกรุณาตรวจสอบสลิปแล้วกดอนุมัติ", color=0xFFA500)
-        approve_embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        await owner.send(embed=approve_embed, view=AdminApproveView(interaction.user.id, amount))
-        await interaction.response.edit_message(content="✅ ส่งเรื่องให้แอดมินตรวจสอบแล้ว รอ 1-3 นาที", view=None)
-
-# ===== ปุ่มแอดมินอนุมัติ =====
+# --- ปุ่มอนุมัติสำหรับแอดมิน ---
 class AdminApproveView(discord.ui.View):
     def __init__(self, user_id, amount):
         super().__init__(timeout=None)
         self.user_id = user_id
         self.amount = amount
 
-    @discord.ui.button(label="✅ อนุมัติ", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="✅ อนุมัติ", style=discord.ButtonStyle.green, custom_id="admin_approve_topup")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id!= OWNER_ID:
-            return await interaction.response.send_message("❌ คุณไม่ใช่แอดมิน", ephemeral=True)
+            return await interaction.response.send_message("❌ ปุ่มนี้สำหรับเจ้าของร้านเท่านั้น", ephemeral=True)
 
         pending_amount = get_pending_topup(self.user_id)
         if pending_amount == 0:
-            return await interaction.response.send_message("❌ รายการนี้ถูกจัดการไปแล้ว", ephemeral=True)
+            await interaction.response.edit_message(content="⚠️ รายการนี้ถูกอนุมัติไปแล้ว", embed=None, view=None)
+            return await interaction.followup.send("รายการนี้อนุมัติไปแล้ว", ephemeral=True)
 
         update_balance(self.user_id, pending_amount)
-        clear_pending_topup(self.user_id)
+        delete_pending_topup(self.user_id)
 
-        guild = bot.get_guild(GUILD_ID)
-        member = guild.get_member(self.user_id)
-        if not member:
-            member = await bot.fetch_user(self.user_id)
-
-        # แจกยศออโต้ถ้าเติมถึง
-        for role_name, price in sorted(ROLE_PRICES.items(), key=lambda x: x[1], reverse=True):
-            if pending_amount >= price:
-                role_id = ROLE_IDS[role_name]
-                role = guild.get_role(role_id)
-                if role and member and role not in member.roles:
-                    await member.add_roles(role)
-                    add_transaction(self.user_id, str(member), role_name, price)
-                    try:
-                        await member.send(f"🎉 **เติมเงินสำเร็จ!**\nคุณได้รับยศ {role_name} อัตโนมัติจากการเติม {pending_amount}฿\nเครดิตคงเหลือ: {get_balance(self.user_id)}฿")
-                    except: pass
-                    break
-
-        await interaction.message.edit(content=f"✅ อนุมัติเงินให้ {member.mention} จำนวน **{pending_amount}**฿ สำเร็จ", embed=None, view=None)
-        try:
-            await member.send(f"✅ **แอดมินอนุมัติแล้ว!** เติมเงิน {pending_amount}฿ สำเร็จ\nเครดิตคงเหลือ: {get_balance(self.user_id)}฿")
-        except: pass
-
-    @discord.ui.button(label="❌ ปฏิเสธ", style=discord.ButtonStyle.red)
-    async def deny_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id!= OWNER_ID:
-            return await interaction.response.send_message("❌ คุณไม่ใช่แอดมิน", ephemeral=True)
-
-        clear_pending_topup(self.user_id)
         member = await bot.fetch_user(self.user_id)
-        await interaction.message.edit(content=f"❌ ปฏิเสธการเติมเงินของ {member.mention} แล้ว", embed=None, view=None)
-        try:
-            await member.send("❌ **แอดมินปฏิเสธการเติมเงิน** กรุณาติดต่อแอดมินหากมีข้อสงสัย")
-        except: pass
+        await interaction.response.edit_message(content=f"✅ อนุมัติเติมเงินให้ {member.mention} จำนวน **{pending_amount}฿** สำเร็จแล้ว", embed=None, view=None)
 
-# ===== Modal เติมเงิน =====
-class TopupModal(discord.ui.Modal, title="💵 เติมเงินเข้าระบบ"):
-    amount = discord.ui.TextInput(label="จำนวนเงิน (บาท)", placeholder="เช่น 300", max_length=5)
+        try:
+            await member.send(f"🎉 เติมเงินสำเร็จ! คุณได้รับเครดิต **{pending_amount}฿** แล้ว\nเครดิตปัจจุบัน: **{get_balance(self.user_id)}฿**")
+        except:
+            pass
+
+    @discord.ui.button(label="❌ ปฏิเสธ", style=discord.ButtonStyle.red, custom_id="admin_reject_topup")
+    async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id!= OWNER_ID:
+            return await interaction.response.send_message("❌ ปุ่มนี้สำหรับเจ้าของร้านเท่านั้น", ephemeral=True)
+
+        pending_amount = get_pending_topup(self.user_id)
+        if pending_amount == 0:
+            await interaction.response.edit_message(content="⚠️ รายการนี้ถูกจัดการไปแล้ว", embed=None, view=None)
+            return
+
+        delete_pending_topup(self.user_id)
+        member = await bot.fetch_user(self.user_id)
+        await interaction.response.edit_message(content=f"❌ ปฏิเสธรายการเติมเงินของ {member.mention} จำนวน **{pending_amount}฿** แล้ว", embed=None, view=None)
+
+        try:
+            await member.send(f"❌ รายการเติมเงิน **{pending_amount}฿** ของคุณถูกปฏิเสธ กรุณาติดต่อแอดมิน")
+        except:
+            pass
+
+# --- Modal ใส่จำนวนเงิน ---
+class TopupModal(discord.ui.Modal, title="เติมเงินเข้ากระเป๋า"):
+    amount = discord.ui.TextInput(
+        label="จำนวนเงินที่ต้องการเติม",
+        placeholder="ใส่แค่ตัวเลข เช่น 100",
+        required=True,
+        max_length=5
+    )
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             amount_int = int(self.amount.value)
-            if amount_int < 10:
-                return await interaction.response.send_message("❌ เติมขั้นต่ำ 10฿", ephemeral=True)
-            if amount_int > 30000:
-                return await interaction.response.send_message("❌ เติมได้สูงสุด 30000฿", ephemeral=True)
-
-            set_pending_topup(interaction.user.id, amount_int)
-            qr_file = generate_promptpay_qr(amount_int)
-
-            embed = discord.Embed(title=f"💰 เติมเงิน {amount_int}฿", description=f"1. สแกน QR เพื่อโอนเงิน\n2. โอนเสร็จแล้วกดปุ่ม `✅ยืนยันสลิป` ด้านล่าง", color=0x00FF00)
-            embed.set_image(url="attachment://promptpay.png")
-            embed.set_footer(text="ห้ามโอนยอดไม่ตรง บอทเช็คไม่ได้")
-            await interaction.response.send_message(embed=embed, file=qr_file, view=ConfirmTopupView(), ephemeral=True)
+            if amount_int <= 0:
+                return await interaction.response.send_message("❌ จำนวนเงินต้องมากกว่า 0", ephemeral=True)
+            if amount_int > 5000:
+                return await interaction.response.send_message("❌ เติมได้สูงสุดครั้งละ 5000฿", ephemeral=True)
         except ValueError:
-            await interaction.response.send_message("❌ ใส่เป็นตัวเลขเท่านั้น", ephemeral=True)
+            return await interaction.response.send_message("❌ กรุณาใส่เฉพาะตัวเลข", ephemeral=True)
 
-# ===== Select Menu ซื้อ VIP =====
+        set_pending_topup(interaction.user.id, amount_int)
+        qr_file = generate_promptpay_qr(amount_int)
+
+        embed = discord.Embed(
+            title="💵 สแกน QR เพื่อเติมเงิน",
+            description=f"**ยอดที่ต้องชำระ: {amount_int}฿**\n**เลขพร้อมเพย์: {PROMPTPAY_ID}**\n\n1. สแกน QR ด้านล่างด้วยแอพธนาคาร\n2. โอนเงินให้เรียบร้อย\n3. กดปุ่ม `✅ ฉันโอนแล้ว` ด้านล่าง\n4. รอแอดมินตรวจสอบ 1-3 นาที",
+            color=discord.Color.green()
+        )
+        embed.set_image(url="attachment://promptpay.png")
+        embed.set_footer(text="ระบบจะแจ้งเตือนเมื่อแอดมินอนุมัติยอดแล้ว")
+
+        await interaction.response.send_message(embed=embed, file=qr_file, view=ConfirmTopupView(), ephemeral=True)
+
+# --- ปุ่มยืนยันโอนแล้ว ---
+class ConfirmTopupView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="✅ ฉันโอนแล้ว", style=discord.ButtonStyle.green, custom_id="confirm_topup")
+    async def confirm_topup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("📨 แจ้งแอดมินแล้ว! กรุณารอตรวจสอบยอด 1-3 นาที\nหากเงินเข้าแล้วบอทจะ DM ไปหาท่านทันที", ephemeral=True)
+
+        owner = await bot.fetch_user(OWNER_ID)
+        amount = get_pending_topup(interaction.user.id)
+
+        embed = discord.Embed(
+            title="🔔 แจ้งเตือนเติมเงิน",
+            description=f"ลูกค้า: {interaction.user.mention} `{interaction.user.id}`\nยอด: **{amount}฿**\n\nเช็คสลิปแล้วกดปุ่มด้านล่างเพื่ออนุมัติ",
+            color=discord.Color.orange()
+        )
+        await owner.send(embed=embed, view=AdminApproveView(interaction.user.id, amount))
+
+# --- ระบบซื้อ VIP แบบ Select Menu ---
 class VIPSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="BRONZE TIER", description=f"ราคา {ROLE_PRICES['Bronze']} บาท | 30 วัน", emoji="🥉", value="Bronze"),
-            discord.SelectOption(label="SILVER TIER", description=f"ราคา {ROLE_PRICES['Silver']} บาท | 30 วัน", emoji="🥈", value="Silver"),
-            discord.SelectOption(label="GOLD TIER", description=f"ราคา {ROLE_PRICES['Gold']} บาท | 30 วัน", emoji="🥇", value="Gold"),
+            discord.SelectOption(label="VIP Bronze - 50฿", description="เริ่มต้น EXP x1.5 | 30 วัน", emoji="🥉"),
+            discord.SelectOption(label="VIP Silver - 150฿", description="ยอดนิยม EXP x2.0 + /fly | 30 วัน", emoji="🥈"),
+            discord.SelectOption(label="VIP Gold - 300฿", description="ตัวท็อป EXP x3.0 + /god | 30 วัน", emoji="🥇")
         ]
-        super().__init__(placeholder="เลือก VIP ที่ต้องการซื้อ...", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="เลือกแพ็กเกจ VIP ที่ต้องการ...", min_values=1, max_values=1, options=options, custom_id="vip_select")
 
     async def callback(self, interaction: discord.Interaction):
-        role_name = self.values[0]
-        price = ROLE_PRICES[role_name]
-        balance = get_balance(interaction.user.id)
-
-        if balance < price:
-            return await interaction.response.send_message(f"❌ เครดิตไม่พอ คุณมี {balance}฿ แต่ {role_name} ราคา {price}฿\nกด `เติมเงิน` ก่อน", ephemeral=True)
-
-        update_balance(interaction.user.id, -price)
-        role_id = ROLE_IDS[role_name]
-        role = interaction.guild.get_role(role_id)
-
-        if role:
-            await interaction.user.add_roles(role)
-            add_transaction(interaction.user.id, str(interaction.user), role_name, price)
-
-            embed = discord.Embed(title="🎉 ซื้อ VIP สำเร็จ!", color=0xFFD700)
-            embed.add_field(name="ยศที่ได้รับ", value=f"{role.mention}", inline=True)
-            embed.add_field(name="ราคา", value=f"`{price}฿`", inline=True)
-            embed.add_field(name="💰 เครดิตคงเหลือ", value=f"`{get_balance(interaction.user.id)}฿`", inline=True)
-            embed.set_thumbnail(url=BANNER_URL)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            update_balance(interaction.user.id, price) # คืนเงิน
-            await interaction.response.send_message("❌ ตั้งค่า ROLE_IDS ผิด หา Role ไม่เจอ คืนเงินให้แล้ว", ephemeral=True)
+        role_name = self.values[0].split(' - ')[0]
+        await self.view.handle_purchase(interaction, role_name)
 
 class VIPShopView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(VIPSelect())
 
-# ===== แผงควบคุมหลัก =====
+    async def handle_purchase(self, interaction: discord.Interaction, role_name: str):
+        user = interaction.user
+        guild = interaction.guild
+        price = ROLE_PRICES[role_name]
+        role_id = ROLE_IDS[role_name]
+        role = guild.get_role(role_id)
+
+        if not role:
+            return await interaction.response.send_message(f"❌ ไม่พบยศ {role_name} ในเซิร์ฟเวอร์", ephemeral=True)
+
+        balance = get_balance(user.id)
+        if balance < price:
+            return await interaction.response.send_message(f"❌ เครดิตไม่พอ! คุณมี {balance}฿ แต่ยศนี้ราคา {price}฿", ephemeral=True)
+
+        try:
+            await user.add_roles(role)
+            update_balance(user.id, -price)
+            add_transaction(user.id, str(user), role_name, price)
+
+            embed = discord.Embed(
+                title="<a:verify:123> ซื้อสำเร็จ!",
+                description=f"ยินดีด้วย {user.mention} คุณได้รับ **{role_name}** แล้ว!",
+                color=0x2ECC71
+            )
+            embed.add_field(name="💰 เครดิตคงเหลือ", value=f"`{balance - price}฿`", inline=True)
+            embed.add_field(name="⏰ หมดอายุ", value="`30 วัน`", inline=True)
+            embed.set_footer(text="DM หาแอดมินเพื่อรับโค้ด VIP ในเกม")
+            embed.set_thumbnail(url="https://i.imgur.com/uB6fE8Q.png")
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ บอทไม่มีสิทธิ์ให้ยศ! ลากยศบอทไว้บนสุด", ephemeral=True)
+
+# --- แผงควบคุมหลัก ---
 class ControlPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="เติมเงิน", style=discord.ButtonStyle.green, emoji="💵")
-    async def topup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="💵 เติมเงิน", style=discord.ButtonStyle.green, custom_id="topup", row=0)
+    async def topup(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TopupModal())
 
-    @discord.ui.button(label="เช็คยอดเงิน", style=discord.ButtonStyle.gray, emoji="💰")
-    async def balance_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        bal = get_balance(interaction.user.id)
-        await interaction.response.send_message(f"💰 เครดิตคงเหลือของคุณ: `{bal}฿`", ephemeral=True)
+    @discord.ui.button(label="💰 เช็คเครดิต", style=discord.ButtonStyle.gray, custom_id="check_balance", row=0)
+    async def check_balance(self, interaction: discord.Interaction, button: discord.ui.Button):
+        balance = get_balance(interaction.user.id)
+        await interaction.response.send_message(f"💰 {interaction.user.mention} ท่านมีเครดิต **{balance}฿**", ephemeral=True)
 
-    @discord.ui.button(label="ร้านค้า VIP", style=discord.ButtonStyle.blurple, emoji="💎")
-    async def shop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        banner_embed = discord.Embed(color=0xFFD700)
-        banner_embed.set_image(url=BANNER_URL)
+    @discord.ui.button(label="🛒 ร้านค้า VIP", style=discord.ButtonStyle.blurple, custom_id="open_shop", row=1)
+    async def open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Embed 1: แบนเนอร์หลัก
+        banner_embed = discord.Embed(
+            description="# <a:gem:1234567890> **PREMIUM MEMBERSHIP**\n### ปลดล็อคขีดจำกัด ขึ้นเป็นผู้ปกครองเซิร์ฟเวอร์",
+            color=0x000000
+        )
+        banner_embed.set_image(url="https://i.imgur.com/your_banner.gif") # เปลี่ยนเป็นแบนเนอร์เกมท่าน
 
-        bronze_embed = discord.Embed(title="🥉 BRONZE TIER", description=f"<a:gem:0> **BASIC ACCESS**\n\n### เริ่มต้นการเป็น VIP ระดับเริ่มต้น\n**ราคา `{ROLE_PRICES['Bronze']} บาท / 30 วัน**`", color=0xCD7F32)
-        bronze_embed.set_thumbnail(url=BANNER_URL)
-        bronze_embed.add_field(name="</>", value="```\n- คูณ EXP x1.5\n- ห้องแชท VIP\n- ยศสีทองแดงเท่ๆ\n```", inline=False)
+        # Embed 2: Bronze Card
+        bronze_embed = discord.Embed(
+            title="🥉 BRONZE TIER",
+            description="```yaml\nราคา: 50฿ | อายุ: 30 วัน\n```",
+            color=0xCD7F32
+        )
+        bronze_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x1.5`\n"
+                  "> `🍀` **Drop Rate** `+20%`\n"
+                  "> `🎁` **Daily Kit** `/kit bronze`\n"
+                  "> `📍` **VIP Warp** `/vip`\n"
+                  "> `🎨` **Chat Color** `น้ำตาล`",
+            inline=False
+        )
+        bronze_embed.set_thumbnail(url="https://i.imgur.com/bronze_icon.png")
 
-        silver_embed = discord.Embed(title="🥈 SILVER TIER", description=f"<a:gem:0> **ENHANCED PERKS**\n\n### สิทธิพิเศษที่เหนือกว่า\n**ราคา `{ROLE_PRICES['Silver']} บาท / 30 วัน**`", color=0xC0C0C0)
-        silver_embed.set_thumbnail(url=BANNER_URL)
-        silver_embed.add_field(name="</>", value="```\n- สิทธิ์ Bronze ทั้งหมด\n- คูณ EXP x2.0\n- คำสั่ง /fly\n- ยศสีเงินสุดหรู\n```", inline=False)
+        # Embed 3: Silver Card
+        silver_embed = discord.Embed(
+            title="🥈 SILVER TIER",
+            description="```yaml\nราคา: 150฿ | อายุ: 30 วัน\n```",
+            color=0xC0C0C0
+        )
+        silver_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x2.0`\n"
+                  "> `🍀` **Drop Rate** `+50%`\n"
+                  "> `✈️` **Flight** `/fly`\n"
+                  "> `💀` **Back** `/back`\n"
+                  "> `🎒` **Inventory** `+2 Rows`\n"
+                  "> `🎨` **Chat Prefix** `[VIP]`",
+            inline=False
+        )
+        silver_embed.set_thumbnail(url="https://i.imgur.com/silver_icon.png")
 
-        gold_embed = discord.Embed(title="🥇 GOLD TIER", description=f"<a:gem:0> **PREMIUM MEMBERSHIP**\n\n### ปลดล็อคพลังทั้งหมด เป็นเจ้าของเซิร์ฟเวอร์\n**ราคา `{ROLE_PRICES['Gold']} บาท / 30 วัน**`", color=0xFFD700)
-        gold_embed.set_thumbnail(url=BANNER_URL)
-        gold_embed.add_field(name="</>", value="```\n- สิทธิ์ Silver ทั้งหมด\n- คูณ EXP x3.0\n- คำสั่ง /god\n- ห้องส่วนตัว\n- ยศสีทองอร่าม\n```", inline=False)
+        # Embed 4: Gold Card
+        gold_embed = discord.Embed(
+            title="🥇 GOLD TIER — BEST VALUE",
+            description="```yaml\nราคา: 300฿ | อายุ: 30 วัน\n```",
+            color=0xFFD700
+        )
+        gold_embed.add_field(
+            name="PERKS",
+            value="> `⚡` **EXP Multiplier** `x3.0` **MAX**\n"
+                  "> `🍀` **Drop Rate** `+100%`\n"
+                  "> `🛡️` **God Mode** `/god 5m`\n"
+                  "> `❤️` **Heal** `/heal`\n"
+                  "> `🔧` **Repair** `/repair` ฟรี\n"
+                  "> `🗝️` **Exclusive** `ดันเจี้ยน VIP`\n"
+                  "> `🎨` **Chat Prefix** `[GOLD VIP]`",
+            inline=False
+        )
+        gold_embed.set_thumbnail(url="https://i.imgur.com/gold_icon.png")
+        gold_embed.set_footer(text="เลือกแพ็กเกจด้านล่างเพื่อสั่งซื้อทันที", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
 
         await interaction.response.send_message(
             embeds=[banner_embed, bronze_embed, silver_embed, gold_embed],
@@ -270,35 +330,67 @@ class ControlPanelView(discord.ui.View):
             ephemeral=True
         )
 
-# ===== คำสั่งเปิดร้าน =====
-@bot.command()
-async def menu(ctx):
-    embed = discord.Embed(title="⚙️ CONTROL PANEL | ระบบร้าน VIP", description="**แผงควบคุมสำหรับลูกค้า กดปุ่มด้านล่างเพื่อใช้งาน**", color=0x2B2D31)
-    embed.add_field(name="💵 เติมเงิน", value="เติมเครดิตเข้าระบบผ่าน PromptPay", inline=True)
-    embed.add_field(name="💰 เช็คยอดเงิน", value="ดูเครดิตคงเหลือของคุณ", inline=True)
-    embed.add_field(name="💎 ร้านค้า VIP", value="ดูรายละเอียด VIP และซื้อยศ", inline=True)
-    embed.set_thumbnail(url=BANNER_URL)
-    embed.set_footer(text="ร้านอาหรับคาบซิการ์ | ระบบอัตโนมัติ 24 ชม.")
-    await ctx.send(embed=embed, view=ControlPanelView())
+    @discord.ui.button(label="📜 ประวัติการซื้อ", style=discord.ButtonStyle.gray, custom_id="check_history", row=1)
+    async def check_history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        conn = sqlite3.connect('shop.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT item, price, timestamp FROM transactions WHERE user_id =? ORDER BY id DESC LIMIT 5", (interaction.user.id,))
+        results = cursor.fetchall()
+        conn.close()
+        if not results:
+            return await interaction.response.send_message("❌ คุณยังไม่มีประวัติการซื้อ", ephemeral=True)
 
-# ===== คำสั่งแอดมิน =====
-@bot.command(name="addmoney")
-@commands.has_permissions(administrator=True)
-async def add_money(ctx, member: discord.Member, amount: int):
-    if ctx.author.id!= OWNER_ID: return
-    update_balance(member.id, amount)
-    await ctx.send(f"✅ เพิ่มเงินให้ {member.mention} จำนวน {amount}฿ สำเร็จ ยอดคงเหลือ: {get_balance(member.id)}฿")
+        embed = discord.Embed(title=f"📜 ประวัติการซื้อ 5 รายการล่าสุดของ {interaction.user.display_name}", color=discord.Color.blue())
+        history_text = ""
+        for item, price, timestamp in results:
+            history_text += f"**{item}** - {price}฿ `เมื่อ {timestamp}`\n"
+        embed.description = history_text
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ===== รันบอท =====
+# --- คำสั่งบอท ---
 @bot.event
 async def on_ready():
-    print(f"บอท {bot.user} ออนไลน์แล้ว ✅")
-    setup_database()
     bot.add_view(ControlPanelView())
+    bot.add_view(ConfirmTopupView())
     bot.add_view(VIPShopView())
     bot.add_view(AdminApproveView(0, 0))
-    bot.add_view(ConfirmTopupView())
+    print(f'บอท {bot.user} ออนไลน์แล้ว!')
+    print('------')
 
-def run_flask(): app.run(host='0.0.0.0', port=8080)
-Thread(target=run_flask).start()
-bot.run(TOKEN)
+@bot.command(name='เมนู')
+async def menu(ctx):
+    if ctx.author.id!= OWNER_ID:
+        return await ctx.send("❌ คำสั่งนี้ใช้ได้เฉพาะเจ้าของเซิร์ฟเวอร์เท่านั้น", delete_after=5)
+
+    embed = discord.Embed(
+        title="🎛️ แผงควบคุมสมาชิก",
+        description="ยินดีต้อนรับสู่ร้าน VIP! กดปุ่มด้านล่างเพื่อทำรายการต่างๆได้เลย",
+        color=discord.Color.purple()
+    )
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed.set_footer(text="ร้าน VIP เปิด 24 ชม. | เติมเงินออโต้ผ่าน QR")
+    await ctx.send(embed=embed, view=ControlPanelView())
+
+@bot.command(name='อนุมัติ')
+@commands.has_permissions(administrator=True)
+async def approve_topup(ctx, member: discord.Member):
+    amount = get_pending_topup(member.id)
+    if amount == 0:
+        return await ctx.send(f"❌ ไม่พบรายการเติมเงินที่รออนุมัติของ {member.mention}")
+
+    update_balance(member.id, amount)
+    delete_pending_topup(member.id)
+
+    await ctx.send(f"✅ อนุมัติเติมเงินให้ {member.mention} จำนวน **{amount}฿** สำเร็จ!")
+    try:
+        await member.send(f"🎉 เติมเงินสำเร็จ! คุณได้รับเครดิต **{amount}฿** แล้ว\nเครดิตปัจจุบัน: **{get_balance(member.id)}฿**")
+    except:
+        pass
+
+# --- รันบอท ---
+setup_database()
+TOKEN = os.getenv("BOT_TOKEN")
+if TOKEN is None:
+    print("❌ ไม่เจอ BOT_TOKEN ใน Environment Variables")
+else:
+    bot.run(TOKEN)
