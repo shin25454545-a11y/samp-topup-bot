@@ -8,14 +8,14 @@ import qrcode
 from datetime import datetime
 from flask import Flask
 from threading import Thread
-from promptpay_qr import generate_payload
+from promptpay import generate_payload # <-- แก้ตรงนี้
 
 # --- ตั้งค่าเริ่มต้น ---
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 125005190607694154
 PROMPTPAY_ID = "0886560336"
 BANNER_URL = "https://i.ibb.co/1Y1Lw8Yn/4d288aac3efa4911e5bb8ade7d5262b6.jpg"
-ADMIN_CHANNEL_ID = ใส่ไอดีห้องแอดมิน # <-- เปลี่ยนตรงนี้
+ADMIN_CHANNEL_ID = ใส่ไอดีห้องแอดมิน # <-- เปลี่ยนตรงนี้เป็นเลขห้องแอดมิน
 
 ROLE_IDS = {
     "VIP Gold": 1499228473095356597,
@@ -144,7 +144,7 @@ class ControlPanelView(discord.ui.View):
             description="ปลดล็อคขีดจำกัด ขึ้นเป็นผู้ปกครองเซิร์ฟเวอร์",
             color=0x2b2d31
         )
-        embed.set_image(url=BANNER_URL) # <-- จุดสำคัญ ใช้รูปใหม่ตรงนี้
+        embed.set_image(url=BANNER_URL)
         
         embed.add_field(name="🥉 BRONZE TIER", value="**ราคา:** 50฿ | **อายุ:** 30 วัน\n\n**PERKS**\n⚡ EXP Multiplier x1.5\n🍀 Drop Rate +20%", inline=False)
         embed.add_field(name="🥈 SILVER TIER", value="**ราคา:** 150฿ | **อายุ:** 30 วัน\n\n**PERKS**\n⚡ EXP Multiplier x2.0\n🍀 Drop Rate +40%", inline=False)
