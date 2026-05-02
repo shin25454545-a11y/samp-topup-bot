@@ -1,124 +1,154 @@
 import discord
 from discord.ext import commands
-import qrcode
 import os
-from io import BytesIO
-import aiosqlite
+from datetime import datetime
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ===== ตั้งค่าจาก Railway Variables =====
-PROMPTPAY_NUMBER = os.getenv("PROMPTPAY_NUMBER")
-ROLE_GOLD_ID = int(os.getenv("ROLE_GOLD_ID"))
-ROLE_SILVER_ID = int(os.getenv("ROLE_SILVER_ID"))
-ROLE_BRONZE_ID = int(os.getenv("ROLE_BRONZE_ID"))
-ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", 0))
-# ======================================
+# ตั้งค่ายศกับราคา
+ROLES_DATA = {
+    "VIP Gold": {"price": 300, "role_id": 1234567890}, # ใส่ role_id จริง
+    "VIP Silver": {"price": 150, "role_id": 1234567891},
+    "VIP Bronze": {"price": 50, "role_id": 1234567892}
+}
 
-DB_PATH = "data.db"
+# โหลดเครดิตจากไฟล์
+def load_credits():
+    credits = {}
+    if os.path.exists("credits.txt"):
+        with open("credits.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                if ":" in line:
+                    user_id, amount = line.strip().split(":")
+                    credits[user_id] = int(amount)
+    return credits
 
-async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, credit INTEGER DEFAULT 0)")
-        await db.commit()
+# เซฟเครดิตลงไฟล์
+def save_credits(credits):
+    with open("credits.txt", "w", encoding="utf-8") as f:
+        for user_id, amount in credits.items():
+            f.write(f"{user_id}:{amount}\n")
 
-async def get_credit(user_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT credit FROM users WHERE user_id =?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+# ฟังก์ชันบันทึก Log
+def log_purchase(user, item_name, price):
+    now = datetime.now().strftime("%d/%m/%Y %H:%M")
+    with open("purchase_log.txt", "a", encoding="utf-8") as f:
+        f.write(f"{now} | {user} | ซื้อ {item_name} ราคา {price}฿\n")
 
-async def add_credit(user_id, amount):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("INSERT INTO users (user_id, credit) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET credit = credit +?", (user_id, amount, amount))
-        await db.commit()
+class ShopView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        for item_name, data in ROLES_DATA.items():
+            button = discord.ui.Button(
+                label=f"{item_name} {data['price']}฿",
+                style=discord.ButtonStyle.blurple,
+                custom_id=item_name
+            )
+            button.callback = self.handle_buy
+            self.add_item(button)
 
-async def remove_credit(user_id, amount):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET credit = credit -? WHERE user_id =?", (amount, user_id))
-        await db.commit()
+    async def handle_buy(self, interaction: discord.Interaction):
+        item_name = interaction.data['custom_id']
+        price = ROLES_DATA[item_name]['price']
+        role_id = ROLES_DATA[item_name]['role_id']
 
-def create_qr(amount):
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"promptpay://{PROMPTPAY_NUMBER}/{amount}")
-    qr.make(fit=True)
-    img = qr.make_image(fill='black', back_color='white')
-    buffer = BytesIO()
-    img.save(buffer, format='PNG')
-    buffer.seek(0)
-    return discord.File(buffer, filename="qr.png")
+        credits = load_credits()
+        user_id = str(interaction.user.id)
+        user_credit = credits.get(user_id, 0)
 
-@bot.event
-async def on_ready():
-    await init_db()
-    print(f'Bot {bot.user} Online แล้ว')
+        if user_credit < price:
+            await interaction.response.send_message(f"❌ เครดิตไม่พอ! ท่านมี {user_credit}฿ แต่ {item_name} ราคา {price}฿", ephemeral=True)
+            return
+
+        # หักเงิน
+        credits[user_id] = user_credit - price
+        save_credits(credits)
+
+        # ให้ยศ
+        role = interaction.guild.get_role(role_id)
+        if role:
+            await interaction.user.add_roles(role)
+            log_purchase(interaction.user, item_name, price) # บันทึก log
+            await interaction.response.send_message(f"✅ ซื้อยศ {item_name} สำเร็จ! เครดิตคงเหลือ {credits[user_id]}฿", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ ไม่พบยศในเซิร์ฟเวอร์ ติดต่อแอดมิน", ephemeral=True)
 
 @bot.command()
 async def เมนู(ctx):
-    embed = discord.Embed(title="🏪 ร้านค้า VIP - ระบบเติมเงิน", description="เลือกเมนูที่ต้องการด้านล่าง", color=0x00ff00)
-    view = MainMenuView(ctx.author.id)
-    await ctx.send(embed=embed, view=view)
+    embed = discord.Embed(
+        title="🏪 ร้าน VIP ของท่าน",
+        description="กดปุ่มด้านล่างเพื่อซื้อยศเลย เครดิตจะถูกหักอัตโนมัติ",
+        color=0xffd700
+    )
+    for item_name, data in ROLES_DATA.items():
+        embed.add_field(name=item_name, value=f"ราคา `{data['price']}฿`", inline=False)
+    embed.set_footer(text="พิมพ์!เติม เพื่อเติมเงิน |!เงิน เพื่อเช็คเครดิต")
+    await ctx.send(embed=embed, view=ShopView())
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def เติม(ctx, member: discord.Member, amount: int):
-    await add_credit(member.id, amount)
-    await ctx.send(f"✅ เติมเงิน {amount}฿ ให้ {member.mention} สำเร็จ")
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ คำสั่งนี้สำหรับแอดมินเท่านั้น")
+        return
 
-class MainMenuView(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=None)
-        self.user_id = user_id
+    credits = load_credits()
+    user_id = str(member.id)
+    credits[user_id] = credits.get(user_id, 0) + amount
+    save_credits(credits)
+    await ctx.send(f"✅ เติมเงินให้ {member.mention} จำนวน {amount}฿ สำเร็จ! ยอดคงเหลือ {credits[user_id]}฿")
 
-    @discord.ui.button(label="💰 เติมเงิน", style=discord.ButtonStyle.green)
-    async def topup(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"💰 **ระบบเติมเงิน**\n1. โอนมาที่พร้อมเพย์: `{PROMPTPAY_NUMBER}`\n2. แจ้งสลิปที่แชทนี้พร้อม @แอดมิน\n3. รอแอดมินเติมเครดิตให้ 1-5 นาที", ephemeral=True)
+@bot.command()
+async def เงิน(ctx):
+    credits = load_credits()
+    user_id = str(ctx.author.id)
+    amount = credits.get(user_id, 0)
+    await ctx.send(f"💰 {ctx.author.mention} ท่านมีเครดิต {amount}฿")
 
-    @discord.ui.button(label="💵 เช็คเครดิต", style=discord.ButtonStyle.blurple)
-    async def check_credit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        credit = await get_credit(interaction.user.id)
-        await interaction.response.send_message(f"💵 **เครดิตของคุณ:** {credit}฿", ephemeral=True)
+@bot.command()
+async def ประวัติ(ctx):
+    """ดู 10 รายการซื้อล่าสุด"""
+    if not os.path.exists("purchase_log.txt"):
+        await ctx.send("❌ ยังไม่มีประวัติการซื้อ")
+        return
 
-    @discord.ui.button(label="🏪 ร้านค้า VIP", style=discord.ButtonStyle.grey)
-    async def shop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(title="🏪 ร้านค้า VIP", description="เลือกยศที่ต้องการซื้อ ระบบจะหักเครดิตอัตโนมัติ", color=0xffd700)
-        view = ShopView(interaction.user.id)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    with open("purchase_log.txt", "r", encoding="utf-8") as f:
+        lines = f.readlines()[-10:]
 
-class ShopView(discord.ui.View):
-    def __init__(self, user_id):
-        super().__init__(timeout=None)
-        self.user_id = user_id
+    if not lines:
+        await ctx.send("❌ ยังไม่มีประวัติการซื้อ")
+        return
 
-    async def buy_role(self, interaction, role_id, price, role_name):
-        credit = await get_credit(interaction.user.id)
-        if credit < price:
-            await interaction.response.send_message(f"❌ เครดิตไม่พอ ต้องการ {price}฿ แต่คุณมี {credit}฿\nกด `💰 เติมเงิน` ก่อน", ephemeral=True)
-            return
+    embed = discord.Embed(title="📜 ประวัติการซื้อล่าสุด 10 รายการ", color=0x00ff00)
+    log_text = "".join([f"`{line.strip()}`\n" for line in reversed(lines)])
+    embed.description = log_text
+    await ctx.send(embed=embed)
 
-        role = interaction.guild.get_role(role_id)
-        if role in interaction.user.roles:
-            await interaction.response.send_message(f"❌ คุณมียศ {role_name} อยู่แล้ว", ephemeral=True)
-            return
+@bot.command()
+async def ยอดขาย(ctx):
+    """ดูยอดขายรวมทั้งหมด"""
+    total = 0
+    count = 0
+    if os.path.exists("purchase_log.txt"):
+        with open("purchase_log.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                if "฿" in line:
+                    try:
+                        price = int(line.split("ราคา ")[1].split("฿")[0])
+                        total += price
+                        count += 1
+                    except: pass
 
-        await remove_credit(interaction.user.id, price)
-        await interaction.user.add_roles(role)
-        new_credit = await get_credit(interaction.user.id)
-        await interaction.response.send_message(f"✅ ซื้อ {role_name} สำเร็จ! หัก {price}฿\n💵 เครดิตคงเหลือ: {new_credit}฿", ephemeral=True)
+    embed = discord.Embed(title="💰 สรุปยอดขายร้าน", color=0xffd700)
+    embed.add_field(name="ยอดขายรวม", value=f"`{total:,}฿`", inline=True)
+    embed.add_field(name="จำนวนที่ขายได้", value=f"`{count} ยศ`", inline=True)
+    await ctx.send(embed=embed)
 
-    @discord.ui.button(label="VIP Gold 300฿", style=discord.ButtonStyle.success)
-    async def gold(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.buy_role(interaction, ROLE_GOLD_ID, 300, "VIP Gold")
+@bot.event
+async def on_ready():
+    print(f"บอท {bot.user} ออนไลน์แล้ว!")
+    bot.add_view(ShopView()) # ทำให้ปุ่มกดได้ตลอดแม้รีบอท
 
-    @discord.ui.button(label="VIP Silver 200฿", style=discord.ButtonStyle.grey)
-    async def silver(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.buy_role(interaction, ROLE_SILVER_ID, 200, "VIP Silver")
-
-    @discord.ui.button(label="VIP Bronze 100฿", style=discord.ButtonStyle.blurple)
-    async def bronze(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.buy_role(interaction, ROLE_BRONZE_ID, 100, "VIP Bronze")
-
-bot.run(os.getenv("BOT_TOKEN"))
+bot.run("TOKEN ท่าน")
