@@ -141,7 +141,7 @@ async def on_ready():
 
 # รันบอทโดยดึง Token จาก Environment Variables
 if __name__ == "__main__":
-    TOKEN = os.getenv("TOKEN")
+    TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
         print("❌ ไม่เจอ TOKEN ใน Environment Variables")
     else:
