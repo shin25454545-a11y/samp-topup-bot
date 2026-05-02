@@ -5,14 +5,14 @@ import os
 import json
 import redis
 
-# --- เชื่อมต่อ Redis (ตัวเก็บตังค์) ---
+# --- เชื่อมต่อ Redis ---
 REDIS_URL = os.getenv("REDIS_URL")
 r = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
 
 def load_data():
     if r:
         data = r.get("users_data")
-        if data: return json.loads(data)
+        return json.loads(data) if data else {}
     return {}
 
 def save_data(data):
@@ -36,21 +36,19 @@ class Menu(View):
 
     @discord.ui.button(label="🧧 เติมเงิน (QR)", style=discord.ButtonStyle.primary, custom_id="deposit_qr")
     async def deposit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # สร้าง Embed แบบไม่มีรูป
         embed = discord.Embed(
             title="🧧 ช่องทางการเติมเงิน (PromptPay)",
-            description="**แสกน QR Code เพื่อเติมเงินได้ทันที**\n\n**เบอร์พร้อมเพย์:** 0886560336",
+            description="**แสกน QR Code ด้านล่างเพื่อเติมเงิน**\n\n**เบอร์พร้อมเพย์:** `0886560336`",
             color=0xffd700
         )
-        # ใช้ API ตัวใหม่ แข็งแรงกว่าเดิม รูปขึ้นแน่นอน
-        embed.set_image(url="https://qrserver.com")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # ส่งแบบมีลิ้งก์ข้อความเพื่อให้ Discord ดึงรูปมาพรีวิวเอง
+        qr_url = "https://promptpay.io"
+        await interaction.response.send_message(content=qr_url, embed=embed, ephemeral=True)
 
     @discord.ui.button(label="👑 รายละเอียด VIP", style=discord.ButtonStyle.danger, custom_id="vip_info")
     async def vip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(title="🛒 รายการยศ VIP", description="รายการยศที่มีจำหน่ายตอนนี้", color=0x00ff00)
-        embed.add_field(name="🥉 VIP Bronze", value="ราคา 50 บาท", inline=False)
-        embed.add_field(name="🥈 VIP Silver", value="ราคา 100 บาท", inline=False)
-        embed.add_field(name="🥇 VIP Gold", value="ราคา 200 บาท", inline=False)
+        embed = discord.Embed(title="🛒 รายการยศ VIP", description="🥉 VIP Bronze: 50฿\n🥈 VIP Silver: 100฿\n🥇 VIP Gold: 200฿", color=0x00ff00)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.event
@@ -60,7 +58,15 @@ async def on_ready():
 
 @bot.command()
 async def setup(ctx):
-    embed = discord.Embed(title="🤖 ระบบจัดการสมาชิก", description="เลือกทำรายการด้านล่างได้เลยครับ", color=0x5865f2)
+    embed = discord.Embed(title="🤖 ระบบจัดการสมาชิก", description="เลือกรายการด้านล่างได้เลยครับ", color=0x5865f2)
     await ctx.send(embed=embed, view=Menu())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def addmoney(ctx, member: discord.Member, amount: int):
+    users = load_data()
+    users[str(member.id)] = users.get(str(member.id), 0) + amount
+    save_data(users)
+    await ctx.send(f"✅ เพิ่มเงินให้ {member.mention} จำนวน {amount} บาท!")
 
 bot.run(os.getenv("BOT_TOKEN"))
