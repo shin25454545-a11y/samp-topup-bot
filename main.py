@@ -16,9 +16,9 @@ def save_data(data):
     with open('users.json', 'w') as f:
         json.dump(data, f, indent=4)
 
-# --- 2. หน้าต่างกรอกเงิน ---
+# --- 2. หน้าต่างแอดมินเติมเงิน ---
 class AddMoneyModal(Modal, title='เติมเงินให้สมาชิก'):
-    money = TextInput(label='จำนวนเงินที่ต้องการเติม', placeholder='เช่น 100')
+    money = TextInput(label='จำนวนเงินที่ต้องการเติม', placeholder='ตัวอย่าง: 100')
     def __init__(self, member):
         super().__init__()
         self.member = member
@@ -47,64 +47,72 @@ class MenuView(View):
     @discord.ui.button(label="💵 เติมเงิน (QR Code)", style=discord.ButtonStyle.primary, custom_id="topup")
     async def topup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         promptpay = "0886560336"
-        embed = discord.Embed(title="🧧 เติมเงิน", description=f"แสกน QR Code เบอร์ `{promptpay}`\nแล้วแจ้งสลิปแอดมินครับ", color=0xFFD700)
-        embed.set_image(url=f"https://promptpay.io{promptpay.png}")
+        qr_url = f"https://promptpay.io{promptpay}.png"
+        embed = discord.Embed(title="🧧 ช่องทางการเติมเงิน", description=f"แสกน QR Code นี้เพื่อเติมเงิน\nเบอร์พร้อมเพย์: `{promptpay}`", color=0xFFD700)
+        embed.set_image(url=qr_url)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="⚙️ จัดการเงิน", style=discord.ButtonStyle.secondary, custom_id="admin_add")
+    @discord.ui.button(label="⚙️ จัดการเงิน", style=discord.ButtonStyle.secondary, custom_id="admin_manage")
     async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ เฉพาะแอดมินเท่านั้น!", ephemeral=True)
         view = View()
-        select = discord.ui.UserSelect(placeholder="เลือกคนที่จะเติมเงินให้...")
+        select = discord.ui.UserSelect(placeholder="เลือกสมาชิก...")
         async def callback(inter: discord.Interaction):
-            await inter.response.send_modal(AddMoneyModal(select.values[0]))
+            await inter.response.send_modal(AddMoneyModal(select.values))
         select.callback = callback
         view.add_item(select)
-        await interaction.response.send_message("เลือกสมาชิก:", view=view, ephemeral=True)
+        await interaction.response.send_message("โปรดเลือกสมาชิก:", view=view, ephemeral=True)
 
     @discord.ui.button(label="👑 ซื้อยศ VIP", style=discord.ButtonStyle.danger, custom_id="buy_vip")
     async def shop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = View()
+        
         async def buy_logic(inter, role_name, price):
             users = load_data()
             uid = str(inter.user.id)
-            if users.get(uid, 0) < price:
-                return await inter.response.send_message(f"❌ เงินไม่พอ! (ต้องการ {price}฿)", ephemeral=True)
+            
+            # --- ส่วนที่เพิ่ม: เช็คว่ามียศอยู่แล้วหรือยัง ---
             role = discord.utils.get(inter.guild.roles, name=role_name)
             if not role:
-                return await inter.response.send_message(f"❌ ไม่พบยศ '{role_name}'", ephemeral=True)
+                return await inter.response.send_message(f"❌ ไม่พบยศ '{role_name}' ในเซิร์ฟเวอร์", ephemeral=True)
+            
+            if role in inter.user.roles:
+                return await inter.response.send_message(f"⚠️ พี่มียศ **{role_name}** อยู่แล้วครับ ไม่ต้องซื้อซ้ำนะ!", ephemeral=True)
+            
+            if users.get(uid, 0) < price:
+                return await inter.response.send_message(f"❌ เงินไม่พอ! (ยศนี้ {price}฿)", ephemeral=True)
             
             # หักเงินและให้ยศ
             users[uid] -= price
             save_data(users)
             await inter.user.add_roles(role)
             
-            # --- ส่วนที่เพิ่ม: ประกาศความรวย ---
-            announce_embed = discord.Embed(
-                title="🎉 ยินดีกับสมาชิกใหม่!",
-                description=f"คุณ {inter.user.mention} ได้ทำการซื้อยศ **{role_name}** เรียบร้อยแล้ว!\nขอให้สนุกกับการเป็น VIP นะครับ 🥳",
-                color=0x00FF00
-            )
-            await inter.channel.send(embed=announce_embed) # ส่งลงห้องแชทหลัก
-            await inter.response.send_message(f"✅ ซื้อสำเร็จ! หัก {price}฿", ephemeral=True)
+            announce = discord.Embed(title="🎉 สมาชิก VIP คนใหม่!", description=f"ยินดีกับคุณ {inter.user.mention} ที่ได้ซื้อยศ **{role_name}** 👑", color=0x00FF00)
+            await inter.channel.send(embed=announce)
+            await inter.response.send_message(f"✅ ซื้อยศ {role_name} สำเร็จ!", ephemeral=True)
 
+        # เพิ่มปุ่มให้ครบ 3 ยศตามรูป
         btn1 = Button(label="VIP Gold (300฿)", style=discord.ButtonStyle.secondary)
         btn1.callback = lambda i: buy_logic(i, "VIP Gold", 300)
         btn2 = Button(label="VIP Silver (150฿)", style=discord.ButtonStyle.secondary)
         btn2.callback = lambda i: buy_logic(i, "VIP Silver", 150)
+        btn3 = Button(label="VIP Bronze (50฿)", style=discord.ButtonStyle.secondary)
+        btn3.callback = lambda i: buy_logic(i, "VIP Bronze", 50) # สมมติราคา 50฿ ครับ
+        
         view.add_item(btn1)
         view.add_item(btn2)
+        view.add_item(btn3)
         await interaction.response.send_message("เลือกยศที่ต้องการซื้อ:", view=view, ephemeral=True)
 
-# --- 4. เริ่มบอท ---
+# --- 4. ตั้งค่าบอท ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.command(name="เมนู")
 async def menu(ctx):
-    embed = discord.Embed(title="🤖 ระบบอัตโนมัติ", description="เลือกทำรายการด้านล่างได้เลยครับ", color=0x9B59B6)
+    embed = discord.Embed(title="🤖 ระบบจัดการสมาชิก", description="เลือกทำรายการด้านล่างได้เลยครับ", color=0x9B59B6)
     await ctx.send(embed=embed, view=MenuView())
 
 bot.run(os.getenv('BOT_TOKEN'))
