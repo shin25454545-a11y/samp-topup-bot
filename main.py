@@ -10,6 +10,7 @@ import io
 # --- ตั้งค่าส่วนตัว ---
 OWNER_ID = 1250051906076934154
 PROMPTPAY_ID = "0886560336"
+BANNER_URL = "https://i.ibb.co/1Y1Lw8Yn/4d288aac3efa4911e5bb8ade7d5262b6.jpg"
 
 ROLE_IDS = {
     "VIP Gold": 1499228473095356597,
