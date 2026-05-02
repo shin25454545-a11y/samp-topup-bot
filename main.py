@@ -128,8 +128,6 @@ class ControlPanelView(discord.ui.View):
 @bot.event
 async def on_ready():
     setup_database()
-    bot.add_view(ControlPanelView())
-    bot.add_view(VIPShopView())
     print(f'บอท {bot.user} ออนไลน์แล้ว!')
     await bot.change_presence(activity=discord.Game(name="🛍️ พิมพ์!menu"))
 
